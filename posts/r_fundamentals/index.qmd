@@ -1,0 +1,297 @@
+---
+title: "Some R Fundamentals"
+date: "2023-11-11"
+categories: [base R]
+---
+
+
+I recently came across the book R Programming for Bioinformatics at my local library and decided to check it out. I don't do bioinformatics and the book is a little old (published in 2009), but I figured I would browse through it anyway. Chapter 2 is titled R Language Fundamentals. As I was flipping through it I found several little nuggets of information that I had either forgotten about over the years or never knew in the first place. I decided to document them here.
+
+**Variable names**
+
+Variable names cannot begin with a digit or underscore, and if they begin with a period they cannot be followed by a number. But we can bend these rules by quoting the names with backticks.
+
+```{r}
+`_evil` <- "probably not wise"
+`_evil`
+
+`.666_number of the beast` <- sqrt(666^2)
+`.666_number of the beast`
+
+rm(`_evil`, `.666_number of the beast`)
+```
+
+**Attributes**
+
+Attributes can be attached to any R object except NULL. They can be useful for storing metadata among many other things. For example, add a source for a dataset.
+
+```{r}
+d <- VADeaths
+attr(d, "source") <- "Molyneaux, L., Gilliam, S. K., and Florant, L. C.(1947) Differences in Virginia death rates by color, sex, age, and rural or urban residence. American Sociological Review, 12, 525–535."
+```
+
+To see the source:
+
+```{r}
+attr(d, "source")
+```
+
+To see all attributes of an object:
+
+```{r}
+attributes(d)
+```
+
+To remove an attribute:
+
+```{r}
+attr(d, "source") <- NULL
+```
+
+Not all attributes are displayed when called on an object. For example, after fitting a linear model, it appears there are only two attributes.
+
+```{r}
+m <- lm(dist ~ speed, data = cars)
+attributes(m)
+```
+
+However, elements of the model object also have attributes. For example, the terms element has 10 attributes.
+
+```{r}
+out <- attributes(m$terms)
+length(out)
+names(out)
+attr(m$terms, "factors")
+```
+
+**The colon operator**
+
+I often forget the colon operator can work with decimal values.
+
+```{r}
+2.5:10.5
+```
+
+And can go backwards:
+
+```{r}
+10.2:1.2
+```
+
+
+**zero length vectors**
+
+The sum of zero length vector is 0, but the product of a zero length vector is 1.
+
+```{r}
+x <- numeric()
+length(x)
+sum(x)
+prod(x)
+```
+
+This is ensures expected behavior when working with sums and products:
+
+```{r}
+# 12 + 0
+sum(12, x)
+```
+
+```{r}
+# 12 * 1
+prod(12, x)
+```
+
+**.Machine**
+
+The `.Machine` variable holds information about the numerical characteristics of your machine. For example, the largest integer my machine can represent:
+
+```{r}
+.Machine$integer.max
+```
+
+If I add 1 to that, the result is numeric, not an integer.
+
+```{r}
+x <- .Machine$integer.max
+x2 <- x + 1
+is.integer(x2)
+```
+
+If I add 1L (an explicit integer) to that, the result is a warning and a NA. My machine cannot represent that integer.
+
+```{r}
+x2 <- x + 1L
+x2
+```
+
+**Recoding factors**
+
+There are several convenience functions in other packages for recoding variables such as `recode` in the {car} package, `case_when` in {dplyr}, and a bunch of functions in the {forcats} package. But it's good to remember how to use base R to recode factors. Create a list with the recoding definitions and assign to the levels of the factor.
+
+```{r}
+g <- sample(letters[1:5], 30, replace = TRUE)
+g <- factor(g)
+g
+```
+
+Put "a" and "b" into one group, "c" and "d" into another group, and keep "e" in it's own group.
+
+```{r}
+lst <- list("A" = c("a", "b"),
+            "B" = c("c", "d"),
+            "C" = "e")
+levels(g) <- lst
+g
+```
+
+If we like we can add an attribute to store the definition.
+
+```{r}
+attr(g, "recoding") <- c("A = {ab}, B = {cd}, C = {e}")
+g
+```
+
+**lists can have dimensions**
+
+Something more interesting than applicable is that lists can have dimensions.
+
+```{r}
+M <- as.table(rbind(c(762, 327, 468), c(484, 239, 477)))
+Xsq <- chisq.test(M) # produces 9 element list
+Xsq <- unclass(Xsq) # remove htest class
+dim(Xsq) <- c(3,3)
+Xsq
+Xsq[1,3]
+```
+
+**Environments**
+
+We are not restricted to creating objects in the Global Environment. We can create our own environments using the `new.env()` function and then create objects in that environment. We can use the dollar sign operator or the `assign()` function.
+
+```{r}
+e1 <- new.env()
+e1$mod <- lm(dist ~ speed, data = cars)
+e1$cumTotal <- function(x)tail(cumsum(x), n = 1)
+assign("vals", c(20, 23, 34, 19), envir = e1)
+ls(e1)
+ls() # list objects in Global Environment
+```
+
+We can access objects in our environment using the dollar sign operator or the `get()` and `mget()` functions.
+
+```{r}
+e1$cumTotal(c(2,4,6))
+get("vals", envir = e1)
+mget(c("mod", "vals"), envir = e1) # get more than one object
+```
+
+We can save the environment and reload it in a future session.
+
+```{r}
+save(e1, file = "e1.Rdata")
+rm(e1)
+load(file = "e1.Rdata")
+```
+
+We can also change the environment associated with an object that was created in the Global Environment.
+
+```{r}
+f <- function(x)(vals + 1000) # vals object defined in e1 environment
+environment(f) <- e1
+f
+f()
+```
+
+Notice if we remove the environment using `rm()`, the function still remains in that environment and we have access to its objects
+
+```{r}
+rm(e1)
+f
+f()
+```
+
+`rm(e1)` simply removes the _binding_ between the symbol "e1" and structure that contains the objects. Since the environment can be reached as the environment of `f()`, it remains available.
+
+**Brackets and Dollar Signs**
+
+I found this sentence enlightening: "One way of describing the behavior of the single bracket operator is that the type of the return value matches the type of the value it is applied to." (p. 28) I like this in favor of [metaphors involving trains](https://adv-r.hadley.nz/subsetting.html#section).
+
+```{r}
+lst <- list(a1 = 1:5, b = c("d", "g"), c = 99)
+lst["a1"] # returns a list
+```
+
+`[[` and `$` extract single values.
+
+```{r}
+lst[["a1"]]
+lst$a1
+```
+
+The `$` operator supports partial matching.
+
+```{r}
+lst$a
+```
+
+The `[` and `[[` operators support expressions, but not partial matching.
+
+```{r}
+ans <- "c"
+lst[ans]
+lst[[ans]]
+```
+
+If names are duplicated in named vectors, then only the value corresponding to the first one is returned when subsetting with brackets.
+
+```{r}
+x <- c("a" = 1, "a" = 2)
+x["a"]
+```
+
+The `%in%` operator can be useful to get all elements with the same name.
+
+```{r}
+x[names(x) %in% "a"]
+```
+
+**Matrix indexing**
+
+I don't work with arrays that often, but when I do I often forget that I can index them with a matrix. Below I extract the value in row 1, column 4, from each of the 3 layers of the iris3 array.
+
+```{r}
+m <- matrix(c(1,4,1,
+              1,4,2,
+              1,4,3), 
+            ncol = 3, byrow = TRUE)
+iris3[m]
+```
+
+Of course we can get the same result (in this case) using subsetting indices.
+
+```{r}
+iris3[1,4,]
+```
+
+**Negative subscripts**
+
+Negative subscripts can appear on the _left side_ of assignment.
+
+```{r}
+x <- 1:10
+x[-(2:4)] <- 99
+x
+```
+
+**Subsetting without dimensions**
+
+Use empty double brackets to select all elements and not change any attributes.
+
+```{r}
+x <- matrix(10:1, ncol = 2)
+x
+x[] <- sort(x)
+x
+```
+

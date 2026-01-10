@@ -1,0 +1,117 @@
+---
+title: "Encoding a contrast in a linear model"
+date: "2024-01-21"
+categories: [contrasts]
+---
+
+This is note to myself on how to encode a contrast in a linear model.
+
+The following data come from the text _Design and Analysis of Experiments_ by Dean and Voss (1999). It involves the lifetime per unit cost of nonrechargeable batteries. Four types of batteries are considered:
+
+1. alkaline, name brand
+2. alkaline, store brand
+3. heavy duty, name brand
+4. heavy duty, store brand
+
+We can read the data in from the textbook web site.
+
+```{r}
+URL <- "https://corescholar.libraries.wright.edu/cgi/viewcontent.cgi?filename=12&article=1007&context=design_analysis&type=additional"
+bat <- read.table(URL, header=TRUE)
+names(bat) <- tolower(names(bat))
+bat$type <- factor(bat$type)
+head(bat)
+```
+
+A quick look at the means suggests the alkaline store brand battery seems like the best battery for the money.
+
+```{r}
+means <- tapply(bat$lpuc, bat$type, mean)
+means
+```
+
+We might want to comparisons between these means. Three such comparisons are as follows:
+
+1. compare battery duty (alkaline vs heavy duty)
+2. compare battery brand (name brand versus store brand)
+3. compare the interaction (levels 1/4 vs levels 2/3)
+
+These are the comparisons presented in the text (p. 171). We can make these comparisons "by hand".
+
+```{r}
+# compare battery duty
+mean(means[1:2]) - mean(means[3:4])
+# compare battery brand
+mean(means[c(1,3)]) - mean(means[c(2,4)])
+# compare interaction
+mean(means[c(1,4)]) - mean(means[c(2,3)])
+```
+
+We can also make these comparisons using a _contrast_ matrix. Below we create the contrast as a matrix object and name it K. Then we use matrix multiplication to calculate the same comparisons above.
+
+```{r}
+K <- matrix(c(1/2, 1/2, -1/2, -1/2,
+              1/2, -1/2, 1/2, -1/2,
+              1/2, -1/2, -1/2, 1/2), 
+            byrow = T, ncol = 4)
+K %*% means
+```
+
+This particular contrast matrix is _orthogonal_. "Two contrasts are orthogonal if the sum of the products of corresponding coefficients (i.e. coefficients for the same means) adds to zero." ([source](https://www.itl.nist.gov/div898/handbook/prc/section4/prc426.htm])) We can show this using the `crossprod()` function.
+
+```{r}
+crossprod(K[1,],K[2,])
+crossprod(K[2,],K[3,])
+crossprod(K[1,],K[3,])
+```
+
+Obviously we would like to calculate standard errors and confidence intervals for these comparisons. One way is to fit a model using `lm()` and do the comparisons as a follow-up using a package such as {multcomp}. To do this we use the `glht()` function with our contrast, K.
+
+```{r message=FALSE}
+library(multcomp)
+m <- lm(lpuc ~ type, data = bat)
+comp <- glht(m, linfct = mcp(type = K))
+confint(comp)
+```
+
+Another way is to _encode_ the contrasts directly in our model. We can do that using the capital `C()` function. The only difference here is that we need to transpose the matrix. The comparisons need to be defined on the columns instead of the rows. We could use the `t()` function to transpose K, but we'll go ahead and create a new matrix to make this clear.
+
+```{r}
+K2 <- matrix(c(1/2, 1/2, -1/2, -1/2,
+              1/2, -1/2, 1/2, -1/2,
+              1/2, -1/2, -1/2, 1/2), 
+            ncol = 3)
+```
+
+Now we refit the model using the contrast in the model formula. Notice the coefficients are the same comparisons we calculated above. The intercept is the grand mean of lpuc, (i.e., `mean(bat$lpuc)`).
+
+```{r}
+m2 <- lm(lpuc ~ C(type, K2), data = bat)
+summary(m2)
+```
+
+And now we can use `confint()` to get the confidence intervals.
+
+```{r}
+confint(m2)
+```
+
+These are narrower than what we got with {multcomp}. That's because {multcomp} uses a family-wise confidence interval that adjusts for making multiple comparisons. 
+
+Another property of orthogonal contrasts is that their estimated means are uncorrelated. We can see this by calling `vcov()` on the fitted model object that directly uses the contrast matrix we created.
+
+```{r}
+zapsmall(vcov(m2))
+```
+
+We can also use the {emmeans} package to make these comparisons as follows using the original model. 
+
+```{r}
+library(emmeans)
+emm_out <- emmeans(m, "type")
+contrast(emm_out, list(c1 = c(1, 1, -1, -1)/2,
+                       c2 = c(1, -1, 1, -1)/2,
+                       c3 = c(1, -1, -1, 1)/2)) |>
+  confint()
+```
+

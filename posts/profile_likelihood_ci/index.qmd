@@ -1,0 +1,122 @@
+---
+title: "Most useful tests for an ANCOVA model"
+date: "2016-10-22"
+categories: [confidence intervals]
+---
+
+
+When you fit a generalized linear model (GLM) in R and call `confint` on the model object, you get confidence intervals for the model coefficients. But you also get an interesting message:
+
+`Waiting for profiling to be done...`
+
+What's that all about? What exactly is being profiled? Put simply, it's telling you that it's calculating a _profile likelihood ratio confidence interval_.
+
+The typical way to calculate a 95% confidence interval is to multiply the standard error of an estimate by some normal quantile such as 1.96 and add/subtract that product to/from the estimate to get an interval. In the context of GLMs, we sometimes call that a Wald confidence interval. 
+
+Another way to determine an upper and lower bound of plausible values for a model coefficient is to find the minimum and maximum value of the set of all coefficients that satisfy the following:
+
+$$-2\log\left(\frac{L(\beta_{0}, \beta_{1}|y_{1},...,y_{n})}{L(\hat{\beta_{0}}, \hat{\beta_{1}}|y_{1},...,y_{n})}\right) < \chi_{1,1-\alpha}^{2}$$
+
+Inside the parentheses is a ratio of _likelihoods_. In the denominator is the likelihood of the model we fit. In the numerator is the likelihood of the same model but with _different coefficients_. (More on that in a moment.) We take the log of the ratio and multiply by -2. This gives us a likelihood ratio test (LRT) statistic. This statistic is typically used to test whether a coefficient is equal to some value, such as 0, with the null likelihood in the numerator (model without coefficient, that is, equal to 0) and the alternative or estimated likelihood in the denominator (model with coefficient). If the LRT statistic is less than $\chi_{1,0.95}^{2} \approx 3.84$, we fail to reject the null. The coefficient is statisically not much different from 0. That means the likelihood ratio is close to 1. The likelihood of the model without the coefficient is almost as high the model with it. On the other hand, if the ratio is small, that means the likelihood of the model without the coefficient is much smaller than the likelihood of the model with the coefficient. This leads to a larger LRT statistic since it's being log transformed, which leads to a value larger than 3.84 and thus rejection of the null.
+
+Now in the formula above, we are seeking all such coefficients in the numerator that would make it a true statement. You might say we're "profiling" many different null values and their respective LRT test statistics. _Do they fit the profile of a plausible coefficient value in our model?_ The smallest value we can get without violating the condition becomes our lower bound, and likewise with the largest value. When we're done we'll have a range of plausible values for our model coefficient that gives us some indication of the uncertainly of our estimate. 
+
+Let's load some data and fit a binomial GLM to illustrate these concepts. The following R code comes from the help page for `confint.glm`. This is an example from the classic [Modern Applied Statistics with S](http://www.stats.ox.ac.uk/pub/MASS4/). `ldose` is a dosing level and `sex` is self-explanatory. `SF` is number of successes and failures, where success is number of dead worms. We're interested in learning about the effects of dosing level and sex on number of worms killed. Presumably this worm is a pest of some sort.
+
+```{r}
+# example from Venables and Ripley (2002, pp. 190-2.)
+ldose <- rep(0:5, 2)
+numdead <- c(1, 4, 9, 13, 18, 20, 0, 2, 6, 10, 12, 16)
+sex <- factor(rep(c("M", "F"), c(6, 6)))
+SF <- cbind(numdead, numalive = 20-numdead)
+budworm.lg <- glm(SF ~ sex + ldose, family = binomial)
+summary(budworm.lg)
+```
+
+The coefficient for `ldose` looks significant. Let's determine a confidence interval for the coefficient using the `confint` function. We call `confint` on our model object, `budworm.lg` and use the `parm` argument to specify that we only want to do it for `ldose`:
+
+```{r}
+confint(budworm.lg, parm = "ldose")
+```
+
+We get our "waiting" message though there really was no wait. If we fit a larger model and request multiple confidence intervals, then there might actually be a waiting period of a few seconds. The lower bound is about 0.8 and the upper bound about 1.32. We might say every increase in dosing level increase the log odds of killing worms by at least 0.8. We could also exponentiate to get a CI for an odds ratio estimate:
+
+```{r}
+exp(confint(budworm.lg, parm = "ldose"))
+```
+
+The odds of "success" (killing worms) is at least 2.3 times higher at one dosing level versus the next lower dosing level.
+
+To better understand the profile likelihood ratio confidence interval, let's do it "manually". Recall the denominator in the formula above was the likelihood of our fitted model. We can extract that with the `logLik` function:
+
+```{r}
+den <- logLik(budworm.lg)
+den
+```
+
+The numerator was the likelihood of a model with a _different_ coefficient. Here's the likelihood of a model with a coefficient of 1.05:
+
+```{r}
+num <- logLik(glm(SF ~ sex + offset(1.05*ldose), family = binomial))
+num
+```
+
+Notice we used the `offset` function. That allows us to fix the coefficient to 1.05 and not have it estimated.
+
+Since we already extracted the _log_ likelihoods, we need to subtract them. Remember this rule from algebra?
+
+$$\log\frac{M}{N} = \log M - \log N$$
+
+So we subtract the denominator from the numerator, multiply by -2, and check if it's less than 3.84, which we calculate with `qchisq(p = 0.95, df = 1)`
+
+```{r}
+-2*(num - den)
+-2*(num - den) < qchisq(p = 0.95, df = 1)
+```
+
+It is. 1.05 seems like a plausible value for the `ldose` coefficient. That makes sense since the estimated value was 1.0642. Let's try it with a larger value, like 1.5:
+
+```{r}
+num <- logLik(glm(SF ~ sex + offset(1.5*ldose), family = binomial))
+-2*(num - den) < qchisq(p = 0.95, df = 1)
+```
+
+FALSE. 1.5 seems too big to be a plausible value for the `ldose` coefficient. 
+
+Now that we have the general idea, we can program a `while` loop to check different values until we exceed our threshold of 3.84. 
+
+```{r}
+cf <- budworm.lg$coefficients[3]  # fitted coefficient 1.0642
+cut <- qchisq(p = 0.95, df = 1)   # about 3.84
+e <- 0.001                        # increment to add to coefficient
+LR <- 0                           # to kick start our while loop 
+while(LR < cut){
+  cf <- cf + e
+  num <- logLik(glm(SF ~ sex + offset(cf*ldose), family = binomial))
+  LR <- -2*(num - den)
+}
+(upper <- cf)
+```
+
+To begin we save the original coefficient to `cf`, store the cutoff value to `cut`, define our increment of 0.001 as `e`, and set `LR` to an initial value of 0. In the loop we increment our coefficient estimate which is used in the `offset` function in the estimation step. There we extract the log likelihood and then calculate `LR`. If `LR` is less than `cut` (3.84), the loop starts again with a new coefficient that is 0.001 higher. We see that our upper bound of 1.339214 is very close to what we got above using `confint` (1.3390581). If we set `e` to smaller values we'll get closer.
+
+We can find the LR profile lower bound in a similar way. Instead of adding the increment we subtract it:
+
+```{r}
+cf <- budworm.lg$coefficients[3]  # reset cf
+LR <- 0                           # reset LR 
+while(LR < cut){
+  cf <- cf - e
+  num <- logLik(glm(SF ~ sex + offset(cf*ldose), family = binomial))
+  LR <- -2*(num - den)
+}
+(lower <- cf)
+```
+
+The result, 0.822214, is very close to the lower bound we got from `confint` (0.8228708).
+
+This is a _very_ basic implementation of calculating a likelihood ratio confidence interval. It is only meant to give a general sense of what's happening when you see that message `Waiting for profiling to be done...`. I hope you found it helpful. To see how R does it, enter `getAnywhere(profile.glm)` in the console and inspect the code. It's not for the faint of heart.
+
+I have to mention the book [Analysis of Categorical Data with R](https://www.amazon.com/Analysis-Categorical-Chapman-Statistical-Science/dp/1439855676), from which I gained a better understanding of the material in this post. The authors have kindly shared their R code at the following web site if you want to have a look: <http://www.chrisbilder.com/categorical/>
+
+To see how they "manually" calculate likelihood ratio confidence intervals, go to the following R script and see the section "Examples of how to find profile likelihood ratio intervals without confint()": <http://www.chrisbilder.com/categorical/Chapter2/Placekick.R>

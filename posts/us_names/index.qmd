@@ -1,0 +1,127 @@
+---
+title: "US Names: section 2.3 of Regression and Other Stories"
+date: "2024-09-02"
+categories: [ROS]
+---
+
+In section 2.3 of Regression and Other Stories, Gelman et al. discuss using graphs to learn more about data. The third example involves the exploration of names in the United States from 1880 to 2010. In this post I recreate figures 2.6 - 2.9 using R code that makes more sense to me. The original data and code are in [this GitHub repo](https://github.com/avehtari/ROS-Examples/tree/master/Names).
+
+First read in the data and drop the superfluous first column which just contains row numbers:
+
+```{r warning=FALSE}
+allnames <- read.csv("https://github.com/avehtari/ROS-Examples/raw/master/Names/data/allnames_clean.csv")
+allnames$X <- NULL
+dim(allnames)
+```
+
+Notice this data set is quite large and "wide" with over 98,000 rows and 133 columns. There is one row per name per sex with counts per year spanning from 1880 to 2010. Here's a portion of the data:
+
+```{r}
+allnames[1:3,1:6]
+```
+
+Apparently 7,065 girls were named Mary in 1880, and then 6,919 in 1881, and so on.
+
+Figs 2.6 and 2.7 show the distribution of the last letters of boys' first names for the years 1906, 1956, and 2006. I wrote a function to create the plots for a given year.
+
+```{r}
+last_letter <- function(year){
+  xyear <- paste0("X", year)
+  d <- subset(allnames, sex == "M", select = c("name", xyear))
+  n <- nchar(d$name)
+  d$last <- substr(d$name, n, n)
+  d$last <- factor(d$last, levels = letters, labels = letters)
+  p_data <- aggregate(d[[xyear]], by = list(d[["last"]]), sum)
+  names(p_data) <- c("letter", "count")
+  p_data$p <- p_data[["count"]]/sum(p_data[["count"]])
+  barplot(p ~ letter, data = p_data, 
+          main = paste("Last letter of boys' names in", year))
+}
+```
+
+Now create the plots:
+
+```{r fig.width=10}
+last_letter(1906)
+last_letter(1956)
+last_letter(2006)
+```
+
+The 2006 plot shows a trend in giving boys names that end with the letter "n", such as Ethan, Jayden, Aiden, Mason, and Logan.
+
+Fig 2.8 looks at the distribution of the letters of boys' last names over time. To create this plot I found it helpful to use the {tidyr} and {dplyr} packages. First I reshaped the data to "long" format using `pivot_longer()` so there is one row per name per sex per year. Then I removed the "X" from the year value and once again extracted the last letter of the last names using the `nchar()` and `substr()` functions.
+
+```{r}
+library(tidyr)
+allnames_long <- pivot_longer(allnames, cols = X1880:X2010, 
+                              names_to = "year", values_to = "count")
+allnames_long$year <- sub("X", "", allnames_long$year)
+n <- nchar(allnames_long$name)
+allnames_long$last <- substr(allnames_long$name, n, n)
+allnames_long$last <- factor(allnames_long$last, 
+                             levels = letters, labels = letters)
+```
+
+Next I used some {dplyr} functions to calculate the proportions of boys' names ending in one of the 26 English letters by year. In the last step I create a new variable called "last2" to indicate if the letter was an N, D or Y. This is to help create a plot matching figure 2.8
+
+```{r message=FALSE}
+library(dplyr)
+last_letter_males <- allnames_long |> 
+  filter(sex == "M") |> 
+  group_by(year, last) |> 
+  summarise(letter_count = sum(count)) |> 
+  mutate(p = letter_count/sum(letter_count),
+         last2 = case_when(last == "n" ~ "n",
+                           last == "d" ~ "d",
+                           last == "y" ~ "y",
+                           .default = "other"))
+```
+
+Before I create the plot, I cut the data into two sets: one with letters N, D and Y; and one with the rest of the letters.
+
+```{r}
+ndy <- subset(last_letter_males, last2 != "other")
+other <- subset(last_letter_males, last2 == "other")
+```
+
+And now to create the plot using {ggplot2}. Using two data sets allows me to tweak the lines for the letters N, D and Y The "Set2" palette is a good all-purpose color blind friendly palette.
+
+```{r message=FALSE}
+library(ggplot2)
+ggplot() +
+  aes(x = year, y = p, group = last) +
+  geom_line(data = other, alpha = 1/5) +
+  geom_line(mapping = aes(color = last2), data = ndy, linewidth = 1.5) +
+  scale_x_discrete(breaks = c("1900", "1950", "2000")) +
+  scale_color_brewer(palette = "Set2") +
+  theme_minimal() +
+  labs(color = "letter")
+```
+
+Names ending in D and Y had their moments in the sun, but now it's all about names ending in N.
+
+Figure 2.9 displays trends in the concentrations of names in the top 10. This was the easiest plot to create. Again I used some {dplyr} reasoning to create the data. After I calculate proportions of counts by year and sex, I sort the data in descending order, slice off the top 10 names, and then sum the proportions by year and sex.
+
+```{r message=FALSE}
+names_conc <- allnames_long |>
+  group_by(year, sex) |> 
+  mutate(p = count/sum(count)) |> 
+  arrange(desc(p)) |> 
+  slice_head(n = 10) |> 
+  summarize(total_p = sum(p))
+```
+
+And here's the plot:
+
+```{r}
+ggplot(names_conc) + 
+  aes(x = year, y = total_p, group = sex, color = sex) +
+  geom_line() +
+  scale_x_discrete(breaks = c("1900", "1950", "2000")) +
+  scale_color_brewer(palette = "Set2") +
+  ylim(c(0, 0.45)) +
+  theme_minimal()
+```
+
+Pre 1900, about 40% of all boys' names were in the top 10. Fast forward 100 years to 2000, only about 10% of names, boy or girl, are in the top 10. We see much more variability in names in the 21st century. 
+

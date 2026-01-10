@@ -1,0 +1,50 @@
+---
+title: "A note on car::deltaMethod"
+date: "2024-03-16"
+categories: [car]
+---
+
+
+> As we would typically estimate the success probability _p_ with the observed success probability $\hat{p} = \sum_iX_i/n$, we might consider using $\frac{\hat{p}}{1 - \hat{p}}$ as an estimate of $\frac{p}{1 - p}$ (the odds). But what are the properties of this estimator? How might we estimate the variance of $\frac{\hat{p}}{1 - \hat{p}}$? Moreover, how can we approximate its sampling distribution? Intuiton abandons us, and exact calculation is relatively hopeless, so we have to rely on an approximation. The Delta Method will allow us to obtain reasonable, approximate answers to our questions. ([Casella and Berger](https://www.routledge.com/Statistical-Inference/Casella-Berger/p/book/9781032593036), p. 240)
+
+Most statistics books that teach the Delta Method work a few examples where they manually derive the standard error of a nonlinear function of some statistic. This requires some calculus and algebra. The result is a closed-form formula we could ostensibly we use in a function to estimate the standard error of a statistic, such as estimated odds, which is a function of an estimated proportion. I want to document how we can use the `deltaMethod()` function in the {car} package to do this work for us.
+
+Casella and Berger show that the estimated standard error of the odds estimator is $\frac{\hat{p}}{n(1 - \hat{p})^3}$ (p. 242). If we didn't know this off hand or have a function available to us, we can use the `deltaMethod()` function to derive this estimator on-the-fly as we analyze data. For example, let's say we observe 19 successes out of 30 trials, an estimated probability of about 0.63, but we want to express that as odds and obtain a confidence interval on the estimated odds.
+
+To begin we load the {car} package. Next we need to store our probability estimate in a _named_ vector. I gave it the name "p". After that, we need to estimate the variance of the probability estimate, which in this case is the familiar $\hat{p}(1 - \hat{p})/n$. Finally we use the `deltaMethod()` function. The first argument is our named vector containing the estimated probability. The second argument is the function of our estimate expressed as a _character string_. Notice this is the odds. The third argument is the estimated variance of our original estimate. 
+
+```{r message=FALSE}
+library(car)
+p_hat <- c("p" = 19/30)
+var_p <- p_hat*(1 - p_hat)/30
+deltaMethod(p_hat, g. = "p/(1-p)", vcov. = var_p)
+```
+
+So our estimated odds is about 1.73 with a 95% confidence interval of [0.44, 3.01]. The reported standard error agrees with the calculation using the formula provided in Casella and Berger.
+
+```{r}
+sqrt(p_hat/(30*(1 - p_hat)^3))
+```
+
+In _[Foundations of Statistics for Data Scientists](https://www.routledge.com/Foundations-of-Statistics-for-Data-Scientists-With-R-and-Python/Agresti-Kateri/p/book/9780367748456)_, Agresti and Kateri use the Delta Method to derive the variance of square root transformed Poisson counts. They show that the square root of a Poisson random variable with a "large mean" has an approximate standard error of 1/2. Again we can use the `deltaMethod()` function with data to derive this on-the-fly.
+
+Below we simulate 10,000 observations from a Poisson distribution with mean 25. Then we estimate the mean and assign it to a named vector. Finally we use the `deltaMethod()` function to show the result is indeed about 1/2. Notice we simply have to provide the transformation as a character string in the second argument.
+
+```{r}
+set.seed(123)
+y <- rpois(10000, 25)
+m <- c("m" = mean(y))
+deltaMethod(m, g. = "sqrt(m)", vcov. = var(y))
+```
+
+Of course the `deltaMethod()` function was really designed to take fitted model objects and estimate the standard error of functions of coefficients. See its help page for a few examples. But I wanted to show it could also be used for more pedestrian textbook examples. 
+
+## References
+
+- Agresti, A. and Kateri, M. (2022) _Foundations of Statistics for Data Scientists_. CRC Press.
+- Casella, G. and Berger, R.L. (2002) _Statistical Inference. 2nd Edition_, Duxbury Press, Pacific Grove.
+- Fox J, Weisberg S (2019). _An R Companion to Applied Regression_, Third edition. Sage, Thousand Oaks CA. <https://socialsciences.mcmaster.ca/jfox/Books/Companion/>.
+- R Core Team (2024). _R: A Language and Environment for Statistical
+  Computing_. R Foundation for Statistical Computing, Vienna, Austria.
+  <https://www.R-project.org/>.
+

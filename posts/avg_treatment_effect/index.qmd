@@ -1,0 +1,80 @@
+---
+title: "The average treatment effect: Figure 20.15 of Regression and Other Stories"
+date: "2025-08-10"
+categories: [ROS]
+---
+
+
+Chapter 20 of [Regression and Other Stories](https://avehtari.github.io/ROS-Examples/) presents a toy example in section 20.8 of calculating an average treatment effect using weights based on the estimated inverse probability of treatment assignment. They leave out several steps in how they arrive at their values. In this post I fill in those steps. The data is presented in figure 20.15, which is actually a table. Here is part of the table. 
+
+```{r}
+n <- c(80, 50, 20, 50)
+x <- c(0, 1, 0, 1)
+t <- c(0, 0, 1, 1)
+y <- c(110, 90, 120, 90)
+d <- data.frame(n, x, t, y)
+d
+```
+
+The first column, n, tells us the sample size for each condition. This column sums to 200 total subjects. The second column, x, is a binary covariate. The third column, t, tells us the treatment (0 = control, 1 = treated). And the fourth column, y, tells us the outcome.
+
+A naive estimate of the average treatment effect can be calculated as follows. Notice we need to use the sample size to accurately calculate the mean. 
+
+```{r}
+weighted.mean(y[3:4], n[3:4]) - weighted.mean(y[1:2], n[1:2])
+```
+
+This indicates the treatment causes a small decrease in the outcome. But this is wrong because the data is unbalanced in the covariate. In the control group (t = 0), there are 80 subjects with x = 0 and 50 with x = 1. However, the treatment group (t = 1) has 20 subjects with x = 0 and 50 subjects with x = 1. Using propensity scores we can reweight the data such that's it's balanced in the covariate. 
+
+The propensity score is the estimated probability of receiving the treatment. When x = 0, the estimated probability of receiving the treatment is 20/(20 + 80), or 0.2. When x = 1, the estimated probability of receiving the treatment is 50/(50 + 50), or 0.5.
+
+```{r}
+d$p <- c(0.2, 0.5, 0.2, 0.5)
+d
+```
+
+We calculate weights by taking the inverse of the propensity score. Treated units receive weights of 1/p, while control units receive weights of 1/(1 - p). The weights for control units are the inverse of the probability they ended up in the control group.
+
+```{r}
+d$w <- ifelse(d$t == 1, 1/d$p, 1/(1 - d$p))
+d
+```
+
+Next we "norm" the weights so they average to 1. This is carried out by dividing by the average of the unnormed weights. The average of the unnormed weights needs to be calculated as a weighted mean. Then we can do the division.
+
+```{r}
+avg <- weighted.mean(d$w, d$n)
+d$nw <- d$w/avg
+d
+```
+
+To get the reweighted data (or pseudo-population) that is balanced in the covariate, we multiply the group samples sizes by the normed weight.
+
+```{r}
+# pseudo-population
+d$pn <- d$nw * n
+d
+```
+
+Notice we have balance across the groups. Each group now has a pseudo-population of 50. Now we can estimate the average treatment effect, which comes out to the true value of 5.
+
+```{r}
+weighted.mean(d$y[3:4], d$pn[3:4]) - weighted.mean(d$y[1:2], d$pn[1:2])
+```
+
+The reason we know 5 is the correct value is because the authors provide the hypothetical "potential outcomes" for both treatment groups in the table. y0 is the potential outcome when untreated and y1 is the potential outcome when treated.
+
+```{r}
+data.frame(t = t, 
+           y0 = c(110, 90, 110, 90), 
+           y1 = c(120, 90, 120, 90))
+```
+
+With this information we can determine the true average treatment effect is 5.
+
+```{r}
+mean(c(120,90)) - mean(c(110,90))
+```
+
+
+

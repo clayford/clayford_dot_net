@@ -1,0 +1,232 @@
+---
+title: "Age Adjustment: section 2.4 of Regression and Other Stories"
+date: "2024-05-21"
+categories: [ROS]
+---
+
+
+In section 2.4 of _Regression and Other Stories_, Gelman, et al. explain the necessity of age adjustment when investigating mortality rates. The book is [freely available as a PDF online](https://users.aalto.fi/~ave/ROS.pdf) and the section of interest is on pages 31-33. Upon first reading, I had trouble understanding what they were doing. In particular I didn't follow Figure 2.12. I'm aware that says more about me and than the authors. Fortunately, there's a footnote in the book that says all data and code are available in the [AgePeriodCohort](https://github.com/avehtari/ROS-Examples/tree/master/AgePeriodCohort/) folder on GitHub. Good, I thought, I'll look at the code and figure out what's going on. Famous last words.
+
+The R script that performs the age adjustment is [births.R](https://github.com/avehtari/ROS-Examples/blob/master/AgePeriodCohort/births.R). It clocks in at over 400 lines has practically no comments outside of the occasional "Sum it up." As you run the code, you'll find the script generates several plots not in the book. In addition, the plots that _are_ in the book are generated in a different order. Trying to parse the R code to help me understand the exposition was frustrating. But I persisted. 
+
+Reading the bibliographic note at the end of the chapter indicated the age adjustment example was first [discussed on Gelman's blog](https://statmodeling.stat.columbia.edu/2015/11/18/first-second-and-third-order-bias-corrections-also-my-ugly-r-code-for-the-mortality-rate-graphs/). In the blog post he walks through the process of age adjustment, creating the same plots in the book, and [provides the R code](http://statmodeling.stat.columbia.edu/wp-content/uploads/2015/11/death_trends.zip). This is basically the births.R script. He says at the end, "the code is ugly. Don’t model your code after my practices! If any of you want to make a statistics lesson out of this episode, I recommend you clean the code."
+
+This blog post is my statistics lesson trying to understand and clean this code. 
+
+## Fig 2.11 (a)
+
+The data apparently come [from the CDC](https://wonder.cdc.gov/ucd-icd10.html), but I'm using the data file Gelman provides with his R code. The data shows number of deaths per age per gender per year for white non-hispanics in the US. For example, the first row shows 1291 female deaths (Male = 0) in 1999 for those who were 35 years old. The total population of 35 year old women in 1999 was 1,578,829. The rate is 1291/1,578,829 x 100,000 = 81.8, or 81 deaths per 100,000.
+
+```{r}
+data <- read.table("white_nonhisp_death_rates_from_1999_to_2013_by_sex.txt", 
+                   header=TRUE)
+head(data)
+```
+
+
+The first plot is mortality rate of the 45-54 age group from 1999 - 2013. We first sum both Deaths and Population by year and then calculate the Mortality Rate by dividing Deaths by Population. This is a nice opportunity to use the base R pipe operator, `|>`. 
+
+```{r}
+aggregate(cbind(Deaths, Population) ~ Year, data = data, FUN = sum, 
+          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  plot(Rate ~ Year, data = _, type = "l", ylab = "Death Rate")
+```
+
+This is the third plot in Gelman's blog post titled "So take the ratio!"
+
+## Fig 2.11 (b)
+
+The second plot shows the average of the 45-54 age group increasing as the baby boomers move through. First we sum the Population by Age and Year for the 45-54 group. Then we take that data and take the mean age per year weighted by the population.
+
+```{r}
+aggregate(Population ~ Age + Year, data = data, sum, 
+          subset = Age %in% 45:54) |> 
+  aggregate(Population ~ Year, data = _, 
+            function(x)weighted.mean(45:54, x)) |> 
+  plot(Population ~ Year, data = _, type = "l")
+```
+
+To help make this clear, let's find the mean age of the 45-54 group in 1999. First find the population for each age in 1999:
+
+```{r}
+tmp <- aggregate(Population ~ Age + Year, data = data, sum, 
+          subset = Age %in% 45:54 & Year == 1999)
+tmp$Population
+```
+
+To find the mean age of the 45-54 group in 1999, we need to weight each age with the population. We can do that with the `weighted.mean()` function.
+
+```{r}
+weighted.mean(45:54, tmp$Population)
+```
+
+The code above does this for 1999-2013. I think it's worth noting that while the plot looks dramatic, the average age only increases from about 49.2 to 49.7. But I suppose when you're dealing with millions of people that increase makes a difference.
+
+This is the fourth plot in Gelman's blog post titled "But the average age in this group is going up!"
+
+```{r echo=FALSE}
+rm(tmp)
+```
+
+
+## Fig 2.11 (c)
+
+This is where I began to struggle when reading the book.
+
+This figure is titled "The trend in raw death rates since 2005 can be explained by age-aggregation bias". This is the eighth plot in the blog post where it has a bit more motivation. Let's recreate the plots in the blog post leading up to this plot.
+
+The first plot is the sixth plot. It's basically the previous plot rescaled as a rate. It's created by first calculating the death rate in 1999, and then taking the weighted mean of that rate by using the total population for each age group.
+
+```{r}
+dr1999 <- aggregate(cbind(Deaths, Population) ~ Age, data = data, FUN = sum, 
+          subset = Age %in% 45:54 & Year == 1999) |> 
+  transform(Rate = Deaths/Population) 
+
+# Now create plot
+aggregate(Population ~ Age + Year, data = data, sum, 
+          subset = Age %in% 45:54) |> 
+  aggregate(Population ~ Year, data = _, 
+            function(x)weighted.mean(dr1999$Rate, x)) |> 
+  plot(Population ~ Year, data = _, type = "l", ylab = "Reconstructed death rate")
+```
+
+Next he combines this plot with the plot of the raw death rate (Fig 2.11 (a)). This is the seventh plot in the blog post.
+
+```{r}
+years <- 1999:2013
+
+Raw <- aggregate(cbind(Deaths, Population) ~ Year, data = data, FUN = sum, 
+          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population)
+
+Expected <- aggregate(Population ~ Age + Year, data = data, sum, 
+          subset = Age %in% 45:54) |> 
+  aggregate(Population ~ Year, data = _, 
+            function(x)weighted.mean(dr1999$Rate, x))
+
+plot(years, Raw$Rate, type="l", ylab="Death rate for 45-54 non-Hisp whites")
+lines(years, Expected$Population, col="green4")
+text(2002.5, .00404, "Raw death rate", cex=.8)
+text(2009, .00394, "Expected just from\nage shift", col="green4", cex=.8)
+```
+
+Then finally he says, "We can sharpen this comparison by anchoring the expected-trend-in-death-rate-just-from-changing-age-composition graph at 2013, the end of the time series, instead of 1999." This means we need to calculate the death rate in 2013, and then take the weighted mean of that rate by using the total population for each age group. This is the dr2013 data frame. Then we create the same plot as above except now using the death rate in 2013.
+
+```{r}
+dr2013 <- aggregate(cbind(Deaths, Population) ~ Age, data = data, FUN = sum, 
+                    subset = Age %in% 45:54 & Year == 2013) |> 
+  transform(Rate = Deaths/Population) 
+
+Raw <- aggregate(cbind(Deaths, Population) ~ Year, data = data, FUN = sum, 
+                 subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population)
+
+Expected <- aggregate(Population ~ Age + Year, data = data, sum, 
+                      subset = Age %in% 45:54) |> 
+  aggregate(Population ~ Year, data = _, 
+            function(x)weighted.mean(dr2013$Rate, x))
+
+plot(years, Raw$Rate,  type="l", 
+     ylab="Death rate for 45-54 non-Hisp whites")
+lines(years, Expected$Population, col="green4")
+text(2002.5, 0.00395, "Raw death rate", cex=.8)
+text(2002, .00409, "Expected just from\nage shift", col="green4", cex=.8)
+```
+
+Gelman notes, "since 2003, all the changes in raw death rate in this group can be explained by changes in age composition."
+
+## Fig 2.12 (a)
+
+This is the first plot showing age-adjusted death rates. Gelman explains this as follows in his blog post: "for each year in time, we take the death rates by year of age and average them, thus computing the death rate that would’ve been observed had the population distribution of 45-54-year-olds been completely flat each year." The book calls it "the simplest such adjustment, normalizing each year to a hypothetical uniformly distributed population in which the number of people is equal at each age from 45 through 54." I found this latter explanation a little confusing.
+
+To create this plot we first sum Deaths and Populations by age and year for the 45-54 age group, then calculate the death rate, and then simply take the mean rate by year. That's it. Gelman takes the additional step of rescaling the rate so that the rate is 1 in 1999.
+
+```{r}
+aggregate(cbind(Deaths, Population) ~ Age + Year, data = data, sum, 
+          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  aggregate(Rate ~ Year, data = _, mean) |> 
+  transform(AA_Rate = Rate/Rate[1]) |>   # relative to 1999
+  plot(AA_Rate ~ Year, data = _, type = "l", 
+       ylab = "age-adjusted death rate, relative to 1999")
+```
+
+## Fig 2.12 (b)
+
+In the book, this plot shows two different age adjustments, even thought the exposition says there are three. They're probably referring to the original blog post plot which does show three. I recreate the plot in the blog post, which is the second to last plot. 
+
+This plot shows (1) age-adjustment using the simple mean of rates, (i.e., the plot above), (2) age-adjustment using the distribution of ages in 1999, and (3) age-adjustment using the distribution of ages in 2013.
+
+This plot requires the most work of all. First we need to get the total population for all ages in 1999 and 2013. Notice we have to add the male and female populations to get the total population. These are used to make the age adjustments.
+
+```{r}
+pop1999 <- aggregate(Population ~ Age, data = data, 
+                     subset = Year == 1999 & Age %in% 45:54, sum)[["Population"]]
+pop2013 <- aggregate(Population ~ Age, data = data, 
+                     subset = Year == 2013 & Age %in% 45:54, sum)[["Population"]]
+```
+
+Next we calculate age-adjusted rates using the population distributions from 1999 and 2013. Again we sum Deaths and Populations by age and year for the 45-54 age group and calculate the death rate. Then we calculate the average rate by year using the population distributions to calculate a weighted mean.
+
+```{r}
+# age-adjustment from Fig 2.12 (a)
+aa_rate_uniform <- aggregate(cbind(Deaths, Population) ~ Age + Year, 
+                             data = data, sum, 
+                             subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  aggregate(Rate ~ Year, data = _, mean) |> 
+  transform(AA_Rate = Rate/Rate[1])
+
+aa_rate_1999 <- aggregate(cbind(Deaths, Population) ~ Age + Year, 
+                          data = data, sum,
+                          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  aggregate(Rate ~ Year, data = _, function(x)weighted.mean(x, pop1999))
+
+aa_rate_2013 <- aggregate(cbind(Deaths, Population) ~ Age + Year, 
+                          data = data, sum, 
+                          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  aggregate(Rate ~ Year, data = _, function(x)weighted.mean(x, pop2013))
+```
+
+Now we can make the plot. Notice we find the range of all the data to help set the limits of the y-axis. Also notice we rescale the plot so all lines begin at 1.
+
+```{r}
+rng <- range(aa_rate_uniform$Rate/aa_rate_uniform$Rate[1], 
+             aa_rate_1999$Rate/aa_rate_1999$Rate[1], 
+             aa_rate_2013$Rate/aa_rate_2013$Rate[1])
+plot(years, aa_rate_uniform$Rate/aa_rate_uniform$Rate[1], type = "l", ylim=rng,
+     ylab = "age-adjusted death rate, relative to 1999")
+lines(years, aa_rate_1999$Rate/aa_rate_1999$Rate[1], lty=2)
+lines(years, aa_rate_2013$Rate/aa_rate_2013$Rate[1], lty=3)
+text(2003, 1.053, "Using 1999\nage dist", cex=.8)
+text(2004, 1.032, "Using 2013\nage dist", cex=.8)
+```
+
+The point of this plot is to demonstrate it doesn't matter how the age-adjustment is done. 
+
+## Fig 2.12 (c)
+
+The final plot shows age adjusted death rates broken down by sex. This is basically the same code as Fig 2.12 (a) but with male included in the calls to `aggregate()`. To rescale the y-axis so it starts at 1 we need divide each vector of rates by the respective 1999 value. 
+
+```{r}
+aa_rate_sex <- aggregate(cbind(Deaths, Population) ~ Age + Year + Male, 
+                         data = data, sum, 
+          subset = Age %in% 45:54) |> 
+  transform(Rate = Deaths/Population) |> 
+  aggregate(Rate ~ Year + Male, data = _, mean) 
+
+plot(years, aa_rate_sex$Rate[aa_rate_sex$Male == 0]/
+       aa_rate_sex$Rate[aa_rate_sex$Year == 1999 & aa_rate_sex$Male == 0], 
+     col="red", type = "l",
+     ylab = "Death rate relative to 1999")
+lines(years, aa_rate_sex$Rate[aa_rate_sex$Male == 1]/
+        aa_rate_sex$Rate[aa_rate_sex$Year == 1999 & aa_rate_sex$Male == 1], 
+      col="blue", type = "l")
+text(2011.5, 1.075, "Women", col="red")
+text(2010.5, 1.02, "Men", col="blue")
+```
+
+Gelman called his code "ugly", but it's his code and he understands it. I don't claim my code is any better, but it's my code and I understand it. 

@@ -1,0 +1,118 @@
+---
+title: "Predicted means for a PO model"
+date: "2025-11-25"
+categories: [rms, PO model]
+---
+
+
+I was reading [section 7.6](https://hbiostat.org/bbr/nonpar#generalization-of-the-wilcoxonkruskal-wallis-test) of Harrell's BBR and came across this example that shows how a proportional odds (PO) model can be used in place of a Kruskal-Wallis test.
+
+Here's the code presented to generate some data:
+
+```{r}
+set.seed(1)
+group <- rep(c('A','B','C','D'), 100)
+y <- rnorm(400, 100, 15) + 10*(group == 'B') + 20*(group=='C') + 30*(group=='D')
+```
+
+Notice these are four samples from normal distributions with the same variances but different means. No special test is needed. But Harrell uses this data to demonstrate how well the PO model performs even when it isn't needed.
+
+Here's the analysis using the `orm()` function from the rms package.
+
+```{r message=FALSE}
+library(rms)
+dd <- datadist(group, y); options(datadist='dd')
+f <- orm(y ~ group)
+f    # use LR chi-square test as replacement for Kruskal-Wallis
+```
+
+There's a lot of output, but the LR chi-square test is the replacement for Kruskal-Wallis. LR chi2 = 193.31, p < 0.0001.
+
+Now here comes the part that was new to me. The PO model can be used to estimate _means_ from the model. Here's how it's done with rms.
+
+```{r}
+M <- Mean(f)
+Predict(f, group, fun=M)
+```
+
+These compare favorably to the sample means.
+
+```{r}
+summarize(y, group, smean.cl.normal)
+```
+
+I thought a PO model returned probabilities. How does this work? Harrell explains it in a footnote:
+
+> The predicted mean for a set of covariate settings is obtained by using all the intercepts and betas to get exceedance probabilities for Y >= y, taking successive differences in those probabilities to get cell probabilities that Y = y, then multiplying cell probabilities by the value attached to them, and summing. This is the formula for the mean for a discrete distribution.
+
+This blog post shows how to implement this.
+
+The first thing we need to do is get the linear predictors. These are just the three model coefficients. We also need to append 0 to account for the reference level. But notice the indexing. There are 399 intercepts! That's right, the `orm()` function works with continuous responses. Since we have 400 unique observations, we have 399 intercepts. 
+
+```{r}
+lp <- c(0, coef(f)[400:402])
+lp
+```
+
+Next we get the intercepts.
+
+```{r}
+intercepts <- coef(f)[1:399]
+head(intercepts)
+```
+
+Now add intercepts to all linear predictors. This creates a 4 x 399 matrix with one column per intercept. Each column contains log odds of each group exceeding the given intercept value.
+
+```{r}
+xb <- sapply(intercepts, "+", lp)
+xb[,1:4]
+```
+
+After that, we convert to _exceedance probabilities_ ($Y \ge y$) using the inverse logit. We see in the first column that each group has very high probability of exceeding 63.9535568.
+
+```{r}
+P <- matrix(plogis(xb), ncol = 399)
+colnames(P) <- names(intercepts)
+P[,1:4]
+```
+
+To get _cell probabilities_ ($Y = y$) we need to take successive differences in exceedance probabilities. We can do this with simple subtraction. Adding a column of 1s adds the probability ceiling of 1. Adding a column of 0s adds the probability floor of 0. The first column shows group probabilities for y = 61.11508, the "baseline" y value. The second column shows the group probabilities for y = 63.95356. And so on.
+
+```{r}
+P <- cbind(1, P) - cbind(P, 0)
+P[,1:4]
+```
+
+Finally we multiply cell probabilities by the value attached to them and sum. This produces four means, one for each group.
+
+```{r}
+m <- P %*% sort(y)
+m
+```
+
+We can also do this with the MASS function `polr()` and car function `Anova()`. The catch is we need to define y as an ordered factor first.
+
+```{r message=FALSE}
+library(MASS) # for polr()
+library(car) # for Anova()
+y_ord <- ordered(y)
+f2 <- polr(y_ord ~ group)
+car::Anova(f2)
+```
+
+To get predicted means we follow the same steps above. The big difference is we need to reverse the sign on the intercepts, which are stored in the "zeta" element of the polr object. This is because the `polr()` function models $P(Y \le y)$. This time let's make a function for this.
+
+```{r}
+mf <- function(model){
+  lp <- c(0, coef(model))
+  intercepts <- model$zeta
+  xb <- sapply(-intercepts, "+", lp)
+  P <- matrix(plogis(xb), ncol = length(f2$zeta))
+  P <- cbind(1, P) - cbind(P, 0)
+  m <- P %*% sort(y)
+  m  
+}
+
+mf(f2)
+```
+

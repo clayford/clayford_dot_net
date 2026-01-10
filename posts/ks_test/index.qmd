@@ -1,0 +1,127 @@
+---
+title: "Parametric Bootstrap of Kolmogorov–Smirnov Test"
+date: "2024-05-29"
+categories: [bootstrap]
+---
+
+
+Zeimbekakis, et al. recently published an article in The American Statistician titled [On Misuses of the Kolmogorov–Smirnov Test for One-Sample Goodness-of-Fit](https://www.tandfonline.com/doi/full/10.1080/00031305.2024.2356095). One of the misues they discuss is using the KS test with parameters estimated from the sample. For example, let's sample some data from a normal distribution.
+
+```{r}
+x <- rnorm(200, mean = 8, sd = 8)
+c(xbar = mean(x), s = sd(x))
+```
+
+If we wanted to assess the goodness-of-fit of this sample to a normal distribution, the following is a bad way to use the KS test:
+
+```{r}
+ks.test(x, "pnorm", mean(x), sd(x))
+```
+
+The appropriate way to use the KS test is to actually supply hypothesized parameters. For example:
+
+```{r}
+ks.test(x, "pnorm", 8, 8)
+```
+
+The results of both tests are the same. We fail to reject the null hypothesis that the sample is from a Normal distribution with the stated mean and standard deviation. However, the former test is very conservative. Zeimbekakis, et al. show this via simulation. I show a simplified version of this simulation. The basic idea is that if the test were valid, the p-values would be uniformly distributed and the points in the uniform distribution QQ-plot would fall along a diagonal line. Clearly that's not the case.
+
+```{r}
+n <- 200
+rout <- replicate(n = 1000, expr = {
+  x <- rnorm(n, 8 , 8)
+  xbar <- mean(x)
+  s <- sd(x)
+  ks.test(x, "pnorm", xbar, s)$p.value
+})
+hist(rout, main = "Histogram of p-values")
+qqplot(x = ppoints(n), y = rout, main = "Uniform QQ-plot")
+qqline(rout, distribution = qunif)
+```
+
+Conclusion: using fitted parameters in place of the true parameters in the KS test yields conservative results. The authors state in the abstract that this "has been 'discovered' multiple times."
+
+When done the right way, the KS test yields uniformly distributed p-values.
+
+```{r}
+rout2 <- replicate(n = 1000, expr = {
+  x <- rnorm(n, 8 , 8)
+  ks.test(x, "pnorm", 8, 8)$p.value
+})
+hist(rout2)
+qqplot(x = ppoints(n), y = rout2, main = "Uniform QQ-plot")
+qqline(rout2, distribution = qunif)
+```
+
+Obviously it's difficult to know which parameters to supply to the KS test. Above we knew to supply 8 as the mean and standard deviation because that's what we used to generate the data. But what to do in real life? Zeimbekakis, et al. propose a parametric bootstrap to approximate the null distribution of the KS test statistic. The steps to implement the bootstrap are as follows:
+
+1. draw a random sample from the fitted distribution
+2. get estimates of parameters of random sample
+3. obtain the empirical distribution function
+4. calculate the bootstrapped KS statistic
+5. repeat steps 1 - 4 many times
+
+Let's do it. The following code is a simplified version of what the authors provide with the paper. Notice they use `MASS::fitdistr()` to obtain MLE parameter estimates. This returns the same mean for the normal distribution but a slightly smaller (i.e. biased) estimated standard deviation.
+
+```{r}
+param  <- MASS::fitdistr(x, "normal")$estimate
+ks <- ks.test(x, function(x)pnorm(x, param[1], param[2]))
+stat <- ks$statistic
+B <- 1000
+stat.b <- double(B)
+n <- length(x)
+
+## bootstrapping
+for (i in 1:B) {
+  # (1) draw a random sample from a fitted dist
+  x.b <- rnorm(n, param[1], param[2])
+  # (2) get estimates of parameters of random sample
+  fitted.b <- MASS::fitdistr(x.b, "normal")$estimate
+  # (3) get empirical distribution function
+  Fn <- function(x)pnorm(x, fitted.b[1], fitted.b[2])
+  # (4) calculate bootstrap KS statistic
+  stat.b[i] <- ks.test(x.b, Fn)$statistic
+}
+mean(stat.b >= stat)
+```
+
+The p-value is the proportion of statistics greater than or equal to the observed statistic calculated with estimated parameters.
+
+Let's turn this into a function and show that it returns uniformly distributed p-values when used with multiple samples. Again this is a simplified version of the R code the authors generously shared with their paper.
+
+```{r}
+ks.boot <- function(x, B = 1000){
+  param  <- MASS::fitdistr(x, "normal")$estimate
+  ks <- ks.test(x, function(k)pnorm(k, param[1], param[2]))
+  stat <- ks$statistic
+  stat.b <- double(B)
+  n <- length(x)
+  for (i in 1:B) {
+    x.b <- rnorm(n, param[1], param[2])
+    fitted.b <- MASS::fitdistr(x.b, "normal")$estimate
+    Fn <- function(x)pnorm(x, fitted.b[1], fitted.b[2])
+    stat.b[i] <- ks.test(x.b, Fn)$statistic
+  }
+  mean(stat.b >= stat)
+}
+```
+
+Now replicate the function with many samples. This takes a moment to run. It took my Windows 11 PC with a Intel i7 chip about 100 seconds to run.
+
+```{r eval=FALSE}
+rout_boot <- replicate(n = 1000, expr = {
+  x <- rnorm(n, 8 , 8)
+  ks.boot(x)
+})
+```
+
+```{r echo=FALSE}
+rout_boot <- readRDS("rout_boot.rds")
+```
+
+```{r}
+hist(rout_boot)
+qqplot(x = ppoints(n), y = rout_boot, main = "Uniform QQ-plot")
+qqline(rout_boot, distribution = qunif)
+```
+

@@ -1,0 +1,12 @@
+WEBSITE NOTES
+
+Add a new post to your blog by creating a sub-directory within posts, and adding an index.qmd file to the directory. That qmd file is the new blog post and when you render that, the blog home page will automatically update to include the newest post at the top of the listing.
+
+EXAMPLE YAML HEADER
+
+---
+title: "Post With Code"
+date: "2025-01-02"
+categories: [news, code, analysis]
+image: "image.jpg"
+---

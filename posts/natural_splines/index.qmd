@@ -1,0 +1,211 @@
+---
+title: "Using natural splines in linear modeling"
+date: "2018-12-02"
+categories: [splines]
+---
+
+
+
+Take a look at this scatterplot:
+
+```{r echo=FALSE}
+x <- 1:100
+k <- c(25, 50, 75) # knots
+
+# function to construct variables
+u <- function(x)ifelse(x > 0, x, 0)
+
+x1 <- x
+x2 <- u(x - k[1])
+x3 <- u(x - k[2])
+x4 <- u(x - k[3])
+
+# cbind(x1,x2,x3,x4)
+
+# generate data
+set.seed(1)
+y <- 0.8 + 1*x1 + -1.2*x2 + 1.4*x3 + -1.6*x4 + rnorm(100,sd = 2.2)
+
+# visualize; just x versus y; non-linear
+plot(x,y)
+```
+
+It's clear there is a relationship between x and y, but the relationship is non-linear. How can we fit a linear model to this data? We could try fitting a polynomial model. The relationship seems to "change directions" four different times, so we could try fitting a 4th-degree polynomial model.
+
+```{r}
+modp <- lm(y ~ poly(x, 4))
+# add fitted line
+plot(x,y)
+lines(x, fitted(modp))
+```
+
+This _sort of_ captures the general nature of the relationship but the peaks and valleys just aren't quite right. They either over-predict or under-predict. We would like to do better. 
+
+Another approach might be to use a nonparametric regression approach such as loess. If we set the span parameter to 0.5, which controls the amount of smoothing, we get a decent fitting model:
+
+```{r}
+modl <- loess(y ~ x, span = 0.5)
+plot(x, y)
+lines(x, predict(modl))
+```
+
+This matches what we get when we use ggplot with the smooth geom:
+
+```{r message=FALSE}
+library(ggplot2)
+ggplot(data.frame(x, y), aes(x, y)) +
+  geom_point() +
+  geom_smooth(se = F, span = 0.5)
+```
+
+But the drawback is we have no prediction equation. This is a non-parametric approach, hence no parameters were estimated. 
+
+This leads us to restricted cubic splines, or natural splines. The basic idea is to model a non-linear relationship such as the one in our example with piecewise cubic polynomials. Let's go ahead and first use natural splines in our linear model and then talk a little more about what's happening behind the scenes. Below we first load the splines package (a recommended package that comes with base R) so we have access to the `ns` function (**n**atural **s**plines). Notice we call `ns` on our predictor and specify `df` as 4. Specifying `df = 4` implies 3 interior knots (ie, not including two "boundary knots"). 
+
+```{r}
+library(splines)
+modns <- lm(y ~ ns(x, df = 4))
+plot(x, y)
+lines(x, predict(modns))
+```
+
+
+This looks better than the polynomial model. And unlike the loess fit, we have a prediction equation:
+
+```{r}
+summary(modns)
+```
+
+Obviously the coefficients defy interpretation, but we can work with them as we would any other linear model. For example, we can test for linearity, that is $H_0: \beta_2 = \beta_3 = \beta_4 = 0$. In our model that means testing that the last 3 coefficients are equal to 0. The car package provides the powerful `linearHypothesis` function for this purpose. 
+
+```{r message=FALSE}
+library(car)
+linearHypothesis(modns, names(coef(modns))[3:5])
+
+```
+
+It's no surprise that the test is highly significant. We can also verify our model with natural splines is superior to the polynomial model via AIC. (Recall a lower AIC is better.) 
+
+```{r}
+AIC(modp, modns)
+```
+
+Now that we have played with natural splines, let's back up and try to get a better understanding of what's going on. To begin with, here's how we generated the data:
+
+```{r }
+x <- 1:100         # independent variable
+k <- c(25, 50, 75) # 3 interior knots
+
+# function to construct variables x2, x3, x4
+u <- function(x)ifelse(x > 0, x, 0)
+
+x2 <- u(x - k[1])
+x3 <- u(x - k[2])
+x4 <- u(x - k[3])
+
+# generate data
+set.seed(1)
+y <- 0.8 + 1*x + -1.2*x2 + 1.4*x3 + -1.6*x4 + rnorm(100,sd = 2.2)
+plot(x, y)
+```
+
+
+Our first predictor is `x`, which is simply the numbers 1 - 100. Next we define 3 "knots" at 25, 50, and 75. We then use those knots to construct three additional variables: x2, x3, and x4. 
+
+- `x2` is equal to x - 25 when x - 25 is greater than 0 
+- `x3` is equal to x - 50 when x - 50 is greater than 0
+- `x4` is equal to x - 75 when x - 75 is greater than 0
+
+Finally we generate our dependent variable, `y`, as a function of `x`, `x2`, `x3`, and `x4` plus some noise from a Normal(0, 2.2) distribution. The formula on the right side of the assignment operator is our _True_ model. This is technically called a _linear spline function_. The best linear model we could fit to the data would be the following:
+
+```{r}
+mod <- lm(y ~ x + x2 + x3 + x4)
+summary(mod)
+plot(x, y)
+lines(x, fitted(mod))
+```
+
+So we see that to make the trajectory of our data change directions 4 times, we needed to create 4 predictors, 3 of which were based on one. This might make intuitive sense if we think of a simple parabola. It changes directions twice and has two coefficients for the $x$ and $x^2$ parameters. It's a 2nd degree polynomial. Likewise for a 3rd degree polynomial, a 4th degree polynomial, and so forth. There's only one $x$, but the trajectory of $y$ changes depending on the degree of the polynomial.
+
+```{r fig.height=3, fig.width=8, echo=FALSE}
+op <- par(mfrow = c(1,3))
+curve(x + x^2, from = -4, to = 3, 
+      yaxt = "n", xaxt = "n", xlab = "", ylab = "",
+      main = "2nd degree polynomial")
+curve(-4 - x + 4*x^2 + x^3, from = -5, to = 2, 
+      yaxt = "n", xaxt = "n", xlab = "", ylab = "",
+      main = "3rd degree polynomial")
+curve(0.5 + 0.2*x - 4*x^2 + x^4, from = -2, to = 2, 
+      yaxt = "n", xaxt = "n", xlab = "", ylab = "",
+      main = "4th degree polynomial")
+par(op)
+```
+
+
+The takeaway is that when we see that our response variable has a non-linear relationship with a predictor variable in real life, we may need to consider more than just a single slope coefficient to model the relationship. In the example we've been using the slope, or trajectory, changes directions 4 times, which suggests using four predictors instead of one. We tried a 4th degree polynomial of $x$ but saw that didn't work as well as we would have liked. A recommended approach then is to try _natural splines_. 
+
+The basic, and I mean very basic, idea of natural splines is to fit a 3rd degree polynomial to data within knots, and then connect those lines together. For example, below is our data with knots defined at 0, 25, 50, 75, and 100.
+
+```{r}
+plot(x,y)
+abline(v = c(0,25,50,75,100))
+```
+
+
+With 5 knots, we have 4 regions of data. Within those 4 regions of data, natural splines essentially allow us to fit 4 different 3rd degree polynomials, all smoothed together. The magic is in how the 3 additional predictors are generated. Using the `ns` function in the `splines` package, we can create a _basis matrix_ that allows us to fit a natural cubic spline using regular regression functions such as `lm` and `glm`. _How_ the basis matrix is generated is quite complicated and probably something you'll just want to take on faith, like I do. 
+
+We can sort of see the natural spline in action if we fit and then color the lines between the knots. Below we regress $y$ on a natural spline of $x$ with knots defined at 25, 50 and 70. We then color the fitted lines differently between the knots.
+
+```{r}
+plot(x,y)
+mod.ns <- lm(y ~ ns(x, knots = c(25,50,75)))
+lines(x[1:25], fitted(mod.ns)[1:25],col=1)
+lines(x[26:50], fitted(mod.ns)[26:50],col=2)
+lines(x[51:75], fitted(mod.ns)[51:75],col=3)
+lines(x[76:100], fitted(mod.ns)[76:100],col=4)
+
+```
+
+Notice the red and green interior lines have a noticeable 3rd degree polynomial shape. The exterior red and blue lines look more like a 2nd degree polynomial. That's because natural splines are constrained to be linear in the tails (ie, the boundary knots). For this reason, natural splines are sometimes called _restricted_ cubic splines. If we didn't want that constraint, we could use the `bs` function to generate a b-spline matrix basis. Here's what that looks like. 
+
+```{r}
+plot(x,y)
+mod.bs <- lm(y ~ bs(x, knots = c(25,50,75)))
+lines(x[1:25], fitted(mod.bs)[1:25],col=1)
+lines(x[26:50], fitted(mod.bs)[26:50],col=2)
+lines(x[51:75], fitted(mod.bs)[51:75],col=3)
+lines(x[76:100], fitted(mod.bs)[76:100],col=4)
+```
+
+Notice the blue line in particular curls up at the boundary as would be expected of a 3rd degree polynomial. But that's not the only difference. Look at the summary output. Notice the `bs` function generated matrix with 6 columns instead of 4. 
+
+```{r}
+summary(mod.bs)
+```
+
+So fitting a b-spline means actually fitting a _more complicated_ model. For this reason and the fact that b-splines can be poory behaved in the tails (Harrell, p. 24), most statisticians recommend working with natural splines. 
+
+To wrap up, let's go over some guidelines for using natural splines with real data. First off, you don't want to go looking at your data and guessing how many times it changes direction to determine your knots or degrees of freedom! I did that simply as a way to help explain how splines worked. In practice you'll want to determine degrees of freedom based on sample size and how important you suspect a predictor to be. Harrell states that 4 degrees of freedom is usually sufficient. If your sample is on the small side, perhaps choose 3 degrees of freedom. If it's large, go with 5. And notice we're talking about degrees of freedom, not knots. The location of knots isn't that crucial and `ns` will automatically select knots based on the quantiles of the predcitor. 
+
+Something else to remember is that the coefficients on a model with natural splines defy any sort of interpretation. So forget using the "1-unit increase in x leads to a __ increase in y" method to explain association. An alternative approach is an effect plot, which allows you to visualize your model given certain predictor values. Here's a quick demonstration using a simplified example that comes with the powerful `effects` package. Below we model the log of prestige, a prestige score for someone's occupation, as a function of logged income and a 4 degree of freedom natural spline basis of education. Calling `summary` and `anova` on the model object will reveal the natural spline appears warranted and highly significant.  
+
+
+```{r message=FALSE}
+library(effects)
+mod.pres1 <- lm(log(prestige) ~ log(income) + ns(education, 4),
+                data=Prestige)
+
+```
+
+But what does it _mean_? What is the association between prestige and education when, say, holding income at the mean value? An effect plot sheds some light.
+
+```{r}
+eff.log <- Effect("education", mod.pres1, transformation=list(inverse=exp))
+plot(eff.log)
+```
+
+This shows that from about 9 - 14, the effect of education is pretty dramatic on prestige scores, but rather uncertain in the extremes, below 9 and above 14. From 10 - 14, it looks like a 2-level increase in education is worth about a 10 point increase in prestige scores. We couldn't guess that from the summary output but we can sort of infer it from the effect plot. Again, this is just an example and not a replication of the original analysis.
+
+Reference:
+
+F. Harrell. _Regression Modeling Strategies: With Applications to Linear Models, Logistic and Ordinal Regression, and Survival Analysis. 2nd Ed_ Springer. 2015

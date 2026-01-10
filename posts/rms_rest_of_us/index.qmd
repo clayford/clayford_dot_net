@@ -1,0 +1,280 @@
+---
+title: "rms for the rest of us"
+date: "2023-08-19"
+categories: [rms]
+---
+
+
+For a few years now I've been chipping away at [_Regression Modeling Strategies_](https://link.springer.com/book/10.1007/978-3-319-19425-7) by [Frank Harrell](https://www.fharrell.com/). Between the exposition, the case studies, the notes, the references, the code and exercises, it's a deep and rich source of statistical learning. The book's associated R package, {rms}, is used throughout the book and is one of the reasons it can be tough sledding at times, especially if you're like me and learned regression using the base R functions `lm()` and `glm()`. In this post I want to create a [Rosetta stone](https://en.wikipedia.org/wiki/Rosetta_Stone#Idiomatic_use) of sorts that shows how to replicate what {rms} does using base R and other packages. Hopefully this will help a few random internet strangers get a better grip on {rms}.
+
+## Model fitting and summary output
+
+To begin, let's load the `gala` data from the {faraway} package. The `gala` data set contains data on species diversity on the Galapagos Islands. Below we use the base R `lm()` function to model the number of plant _Species_ found on the island as function of the _Area_ of the island (km$^2$), the highest _Elevation_ of the island (m), the distance from the Nearest island (km), the distance from Santa _Cruz_ island (km), and the area of the _Adjacent_ island (square km). This how I and thousands of others learned to do regression in R. Of course we use the familiar `summary()` function on our model object to see the model coefficients, marginal tests, the residual standard error, R squared, etc.
+
+```{r}
+library(faraway)
+data("gala")
+m <- lm(Species ~ Area + Elevation + Nearest + Scruz + Adjacent, 
+        data = gala)
+summary(m)
+```
+
+Now let's fit the same model using the {rms} package. For this we use the `ols()` function. Notice we can use R's formula syntax as usual. One additional argument we need to use that will come in handy in a few moments is `x = TRUE`. This stores the predictor variables with the model fit as a design matrix. Notice we don't need to call `summary()` on the saved model object. We simply print it.
+
+```{r message=FALSE}
+library(rms)
+mr <- ols(Species ~ Area + Elevation + Nearest + Scruz + Adjacent, 
+            data = gala, x = TRUE)
+mr
+```
+
+The coefficient tables and summaries of residuals are the same. Likewise both return R-squared and Adjusted R-squared. The residual standard error from the `lm()` output is called `sigma` in the `ols()` output. 
+
+The `ols` output also includes a "g" statistic. This is Gini's mean difference and measures the dispersion of predicted values. It's an alternative to standard deviation. We can use the {Hmisc} function `GiniMd` to calculate Gini's mean difference for the model fit with `lm()` as follows.
+
+```{r}
+Hmisc::GiniMd(predict(m))
+```
+
+Whereas the summary output for `lm()` includes an F test for the null that all of the  predictor coefficients equal 0, the `ols()` function reports a Likelihood Ratio Test. This tests the same null hypothesis using a ratio of likelihoods. We can calculate this test for the `lm()` model using the `logLik()` function. First we subtract the log likelihood of a model with no predictors from the log likelihood for the original model, and then multiply by 2. Apparently, [according to Wikipedia](https://en.wikipedia.org/wiki/Likelihood-ratio_test), multiplying by 2 ensures mathematically that the test statistic converges to a chi-square distribution if the null is true. If the null is true, we expect this different of log likelihoods (or ratio, according to the [quotient rule of logs](https://mathinsight.org/logarithm_basics#quotient)) to be about 1. This statistic is very large. Clearly at least one of the predictor coefficients is not 0.
+
+```{r}
+LRchi2 <- (logLik(m) - logLik(lm(gala$Species ~ 1)))*2
+LRchi2
+```
+
+If we wanted to calculate the p-value that appears in the `ols()` output, we can use the `pchisq()` function. Obviously the p-value in the `ols()` output is rounded.
+
+```{r}
+pchisq(LRchi2, df = 7, lower.tail = FALSE)
+```
+
+## Partial F tests and important measures
+
+Now let's use the `anova()` function on both model objects and compare the output. For the `lm()` object, we get sequential partial F tests using Type I sums of squares. Each line tests the null hypothesis that adding the listed predictor to the previous model without it explains no additional variability. So the Area line compares a model with just an intercept to a model with an intercept and Area. The Elevation line compares a model with an intercept and Area to a model with an intercept, Area, and Elevation. And so on. Small p-values are evidence against the null.
+
+```{r}
+anova(m)
+```
+
+Calling `anova()` on the `ols()` object produces a series of partial F tests using Type II sums of squares. Each line tests the null hypothesis that adding the listed predictor to a model with all the other listed predictors already in it explains no additional variability. So the Area line compares a model with all the other predictors to a model with all the other predictors and Area. The Elevation line compares a model with all the other predictors to a model with all the other predictors and Elevation. The final line labeled REGRESSION is the F Test reported in the summary output for the `lm()` model. 
+
+```{r}
+anova(mr) 
+```
+
+To run these same Partial F tests for the `lm()` object we can use the base R `drop1()` function.
+
+```{r}
+drop1(m, test = "F")
+```
+
+The {rms} package offers a convenient plot method for `anova()` objects that "draws dot charts depicting the importance of variables in the model" (from the `anova.rms` help page). The default importance measure is the chi-square statistic for each factor minus its degrees of freedom. There are several other importance measures available. See the `anova.rms` help page for the `what` argument.
+
+```{r}
+plot(anova(mr))
+```
+
+## IQR effect plots
+
+Earlier we noted that we don't use the `summary()` function on `ols()` model objects to see a model summary. That doesn't mean there isn't a `summary()` method available. There is, but it does something entirely different than the summary method for `lm()` objects. If we try it right now we get an error message:
+
+```{r error=TRUE}
+summary(mr)
+```
+
+Notice what it says: "adjustment values not defined here or with datadist". This tells us we need to define "adjustment values" to use the `summary()` function. Instead of summarizing the model, the {rms} summary function when called on {rms} model objects returns a "summary of the effects of each factor". Let's demonstrate what this means.
+
+The easiest way to define adjustment values is to use the `datadist()` function on our data frame and then set the global datadist option using the base R `options()` function. Harrell frequently assigns datadist results to "d" so we do the same. (Also, the help page for datadist states, "The best method is probably to run datadist once before any models are fitted, storing the distribution summaries for all potential variables." I elected to wait for presentation purposes.)
+
+```{r}
+d <- datadist(gala)
+options(datadist = "d")
+```
+
+If we print "d" we see adjustment levels for all variables in the model. 
+
+```{r}
+d
+```
+
+Now let's call `summary()` on our {rms} model object and see what it returns.
+
+```{r}
+summary(mr)
+```
+
+This produces an interquartile range "Effects" summary for all predictors. For example, in the first row we see the effect of Area is about -1.41. To calculate this we predict Species when Area = 59.238 (High, 75th percentile) and when Area = 0.2575 (Low, 25th percentile) and take the difference in predicted species. For each prediction, all other variables are held at their "Adjust to" level as shown above when we printed the datadist object. In addition to the effect, the standard error (SE) of the effect and a 95% confidence interval on the effect is returned. In this case we're not sure if the effect is positive or negative. (Incidentally )
+
+To calculate this effect measure using our `lm()` model object we can use the `predict()` function to make two predictions and then take the difference using the `diff()` function. Notice all the values in the newdata argument come from the datadist object above. The two values for Area are the "Low:effect" and "High:effect" values. The other values from the "Adjust to" row.
+
+```{r}
+# How to get Area effect in summary(mr) output = -1.411900
+p <- predict(m, newdata = data.frame(Area = c(0.2575, 59.238), 
+                                Elevation=97.75, 
+                                Nearest=3.05,
+                                Scruz=46.65,
+                                Adjacent=2.59))
+p
+diff(p)
+```
+
+To get the standard error and confidence interval we can do the following. (Recall 58.980 is the IQR of Area.)
+
+```{r}
+se <- sqrt((58.980 * vcov(m)["Area","Area"] * 58.980))
+se
+diff(p) + c(-1,1) * se * qt(0.975, df = 24)
+```
+
+This is made a little easier using the `emmeans()` function in the {emmeans} package. We use the `at` argument to specify at what values we wish to make predictions for Area. All other values are held at their median by setting `cov.reduce = median`. Sending the result to the {emmeans} function `contrast` with argument "revpairwise" says to subtract the estimated means in reverse order. Finally we pipe into the `confint()` to replicate the IQR effect estimate for Area that we saw in the `ols()` summary.
+
+```{r message=FALSE}
+library(emmeans)
+emmeans(m, specs = "Area", at = list(Area = c(0.2575, 59.238)), 
+        cov.reduce = median) |>
+  contrast("revpairwise") |>
+  confint()
+```
+
+There is also a plot method for {rms} summary objects. It plots the Effects and the 90, 95, and 99 percent confidence intervals using different shades of blue. Below we see the Area effect of -1.41 with relatively tight confidence intervals hovering around 0.
+
+```{r}
+plot(summary(mr))
+```
+
+
+## Non-linear effects
+
+Harrell advocates using non-linear effects in the form of regression splines. This makes a lot of sense when you pause and consider how many effects in real life are truly linear. Not many. Very few associations in nature indefinitely follow a straight line relationship. Fortunately, we can easily implement regression splines in R and specify how much non-linearity we want to entertain. We do this either in the form of degrees of freedom or knots. More of both means more non-linearity. I personally think of it as the number of times the relationship might change direction.
+
+One way to implement regression splines in R is via the `ns()` function in the {splines} package, which comes installed with R. Below we fit a model that allows the effect of Nearest to change directions three times by specifying `df=3`. We might think of this as sort of like using a 3-degree polynomial to model Nearest (but that's not what we're doing). The summary shows three coefficients for Nearest, neither of which have any interpretation.
+
+```{r}
+library(splines)
+m2 <- lm(Species ~ Area + Elevation + ns(Nearest, df = 3) + 
+           Scruz + Adjacent, 
+         data = gala)
+summary(m2)
+```
+
+To decide whether we should keep this non-linear effect, we could use the `anova()` function to compare this updated more complex model to the original model with only linear effects. The null of the test is that both models are equally adequate. It appears there is some evidence that this non-linearity improves the model.
+
+```{r}
+anova(m, m2)
+```
+
+To entertain non-linear effects in {rms} use the `rcs()` function, which stands for restricted cubic splines. Instead of degrees of freedom we specify knots. Three degrees of freedom corresponds to four knots. 
+
+```{r}
+mr2 <- ols(Species ~ Area + Elevation + rcs(Nearest, 4) + 
+               Scruz + Adjacent, 
+             data = gala, x = TRUE)
+mr2
+```
+
+Notice we get three coefficients for Nearest that differ in value from our `lm()` result. A brief explanation of why that is [can be found on datamethods.org](https://discourse.datamethods.org/t/rms-discussions/3275/168?u=clay_ford). [This paper](https://bmcmedresmethodol.biomedcentral.com/articles/10.1186/s12874-019-0666-3) provides a deeper explanation.
+
+Calling the {rms} `anova()` method on the model object returns a test for nonlinearity under the Nearest test, labeled "Nonlinear". Notice the resulting p-value is slightly higher and exceeds 0.05. 
+
+```{r}
+anova(mr2)
+```
+
+To replicate the {rms} `anova()` output using `lm()`, we need to change `ns()` arguments. The following R code comes from this [hbiostat.org page](https://hbiostat.org/R/rms/gtrans.html#different-basis-functions-for-cubic-splines)
+
+```{r}
+w <- rcs(gala$Nearest, 4)
+kn <- attr(w, 'parms')
+m2 <- lm(Species ~ Area + Elevation + ns(Nearest, knots = kn[2:3], 
+                                         Boundary.knots = c(kn[1], kn[4])) 
+         + Scruz + Adjacent, data = gala)
+anova(m, m2)
+```
+
+Which approach is better: `ns()` or `rcs()`? I don't pretend to know and I'm not sure it really matters. The substance of the results doesn't differ much. Yes, we saw a p-value jump from 0.04 to 0.05, but we [know better](https://www.amstat.org/asa/files/pdfs/p-valuestatement.pdf) than to make hard binary decisions based on a p-value.
+
+## Effect plots
+
+Since interpreting non-linear effect coefficients is all but impossible, we turn to visualization. When fitting a non-linear model with `lm()`, the {effects} and {ggeffects} packages are fantastic for creating effect plots. 
+
+```{r message=FALSE}
+m2 <- lm(Species ~ Area + Elevation + ns(Nearest, df = 3) + 
+           Scruz + Adjacent, gala)
+library(effects)
+Effect("Nearest", m2) |> plot()
+```
+
+```{r}
+library(ggeffects)
+ggeffect(m2, "Nearest") |> plot()
+```
+
+In both cases we see the effect of Nearest is negative for values 0 - 20, but then seems to increase for values above 20.
+
+To get a similar plot for an {rms} model, we can use the `Predict()` function (note the capital "P"; this is an {rms} function) and then pipe into `plot()`. You can also pipe into `ggplot()` and `plotp()` to get ggplot2 and plotly plots, respectively. 
+
+```{r}
+Predict(mr2, Nearest) |> plot() 
+```
+
+To get all effect plots in one go, we can use the `allEffects()` function with the `lm()` model.
+
+```{r}
+allEffects(m2) |> plot()
+```
+
+To do the same with {rms}, we use the `Predict()` function with no predictors specified. Notice the y-axis has the same limits for all plots.
+
+```{r}
+Predict(mr2) |> plot()
+```
+
+## Diagnostics
+
+A linear model makes several assumptions, two of which are constant variance of residuals and normality of residuals. The `plot()` method for `lm()` objects makes this easy to assess graphically.
+
+```{r warning=FALSE}
+op <- par(mfrow = c(2,2))
+plot(m2)
+par(op)
+```
+
+The left two plots assess constant variance using two different types of residuals. The upper right plot assess normality. The bottom right helps identify influential observations. The islands of Isabela and Santa Cruz stand out as either not being well fit by the model or unduly influencing the fit of the model.
+
+We can use the `plot.lm() ` method on the `ols()` model, but only the first one (i.e., `which = 1`).
+
+```{r}
+plot(mr2, which = 1)
+```
+
+To create a QQ plot to assess normality of residuals we need to extract the residuals using the residuals() function and plot with `qqnorm()` and `qqline()`
+
+```{r}
+r <- residuals(mr2, type="student")
+qqnorm(r)
+qqline(r)
+```
+
+To check for possible influential observations for an `lm()` model we can use the base R function `influence.measures()` and its associated `summary()` method. See `?influence.measures` for a breakdown of what is returned. The columns that begin "dfb" are the DFBETA statistics. DFBETAS indicate the effect that deleting each observation has on the estimates of the regression coefficients. That's why there's a DFBETA for every coefficient in the model.
+
+```{r}
+summary(influence.measures(m2))
+```
+
+The {rms} package offers the `which.influence()` and `show.influence()` tandem to identify observations (via DFBETAS) that effect regression coefficients with their removal. Below we set `cutoff = 0.4`. An asterisk is placed next to a variable when any of the coefficients associated with that variable change by more than 0.4 standard errors upon removal of the observation. Below we see that removing the Isabela observation changes four of the coefficients. (Also, this is why we set `x = TRUE` in our call to `ols()`, so we could use these functions.) The values displayed are the observed values for each observation.
+
+```{r}
+w <- which.influence(mr2, cutoff = 0.4)
+show.influence(w, gala)
+```
+
+## More information
+
+Got a question? Harrell runs [a discussion board](https://discourse.datamethods.org/t/rms-discussions/3275) for the {rms} package. 
+
+[Chapter 14](https://thomaselove.github.io/2020-432-book/using-ols-from-the-rms-package-to-fit-linear-models.html) of [these course notes](https://thomaselove.github.io/2020-432-book/index.html) by Thomas Love are also helpful.
+
+And here's a nice blog post called [An Introduction to the Harrell“verse”: Predictive Modeling using the Hmisc and rms Packages](https://www.nicholas-ollberding.com/post/an-introduction-to-the-harrell-verse-predictive-modeling-using-the-hmisc-and-rms-packages/) by Nicholas Ollberding.
+
+Eventually you may want to buy his book, [Regression Modeling Strategies](https://link.springer.com/book/10.1007/978-3-319-19425-7). It's not cheap, but it's not outrageous either. Considering how much information, advice, code, examples, and references it contains, I think it's a bargain. It's a text that will provide many months, if not years, of study.

@@ -1,0 +1,17 @@
+---
+title: ""
+about:
+    template: trestles
+image: img/clay_ford_big_head.jpg
+comments: false
+---
+
+Hi. I'm Clay. I like to write about math and statistics, especially for people who struggle with math and statistics.
+
+I work at the [University of Virginia Library StatLab](https://library.virginia.edu/data/statlab) providing free statistics consulting to students, faculty and staff. There's no actual lab, just an office. But it's a nice office with a window and a little conference table. I also write [articles](https://library.virginia.edu/data/tag/clay-ford) for the StatLab.
+
+I made this web site with [Quarto](https://quarto.org/) using [this person's website](https://chrisvoncsefalvay.com/) as inspiration, which I found in [Quarto's gallery of web sites](https://quarto.org/docs/gallery/#websites).
+
+I host this site with [DreamHost](https://www.dreamhost.com/).
+
+Thanks for visiting!

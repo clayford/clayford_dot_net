@@ -1,0 +1,25 @@
+project:
+  type: website
+
+website:
+  title: "Clay Ford"
+  site-url: https://www.clayford.net
+  description: "Clay Ford's personal web site"
+  navbar:
+    right:
+      - blog.qmd
+      - archive.qmd
+      - icon: github
+        href: https://github.com/clayford
+      - icon: rss
+        href: index.xml
+
+format:
+  html:
+    theme:
+      - cosmo
+      - brand
+    css: styles.css
+
+
+

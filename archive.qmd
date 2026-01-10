@@ -1,0 +1,7 @@
+---
+title: "Archive"
+---
+
+- [Statistics you can probably trust](https://www.clayford.net/statistics/), my old blog
+- [curiousmath.com](https://curiousmath.com/), a web site I created in 1996
+

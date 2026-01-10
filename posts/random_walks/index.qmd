@@ -1,0 +1,163 @@
+---
+title: "A Note on Random Walks"
+date: "2025-09-30"
+categories: [time series]
+---
+
+A random walk is a time series constructed as follows
+
+$$Y_t = Y_{t-1} + e_t $$
+
+where the $e_t$ are independent and identically distributed random variables with mean 0 and a fixed variance, $\sigma^2$. The initial condition is $Y_1 = e_1$. Here's one way to construct a single random walk in R with $\sigma^2 = 4$ for $t$ ranging from 1 to 100.
+
+```{r}
+y <- numeric(100)
+y[1] <- rnorm(n = 1, mean = 0, sd = 2)
+for(i in 2:100){
+  y[i] <- y[i - 1] + rnorm(n = 1, mean = 0, sd = 2)
+}
+plot(y, type = "o")
+```
+
+A more efficient way to simulate this in R is using the `cumsum()` function.
+
+```{r}
+e <- rnorm(n = 100, mean = 0, sd = 2)
+y <- cumsum(e)
+plot(y, type = "o")
+```
+
+## Mean
+
+The mean at any time $t$ in a random walk is 0. To illustrate, let's generate 100,000 random walks.
+
+```{r}
+rw <- function(t = 100){
+  e <- rnorm(n = t, mean = 0, sd = 2)
+  y <- cumsum(e)
+  y
+}
+
+rwalks <- replicate(n = 1e5, rw())
+# each column is a random walk
+dim(rwalks)
+```
+
+Each column is a random walk. To get the mean at time 10, we take the mean of the 10th row. Here I calculate the mean and 95% confidence interval. Notice it's close to 0.
+
+```{r}
+list(mean = mean(rwalks[10,]), ci = t.test(rwalks[10,])$conf.int)
+```
+
+The mean at time 85 is also about 0.
+
+```{r}
+list(mean = mean(rwalks[85,]), ci = t.test(rwalks[85,])$conf.int)
+
+```
+
+## Variance
+
+The variance at time t increases linearly with time:
+
+$$\text{Var}(Y_t) = t\sigma_{t}^2$$
+
+From our random walks above, the variance at time = 10 should be about 10 * 4 = 40.
+
+```{r}
+var(rwalks[10,])
+```
+
+Likewise, the variance at time = 85 should be about 85 * 4 = 340.
+
+```{r}
+var(rwalks[85,])
+```
+
+## Covariance
+
+Since each time point is independent of all other time points, the covariance between any two time points, say t and s, such that $1 \le t \le s$, is also $t\sigma_{e}^2$.
+
+The covariance between time points 10 and 11 should be about 10 * 4 = 40.
+
+```{r}
+cov(rwalks[10,], rwalks[11,])
+```
+
+Likewise, the covariance between time points 10 and 85 should also be about 10 * 4 = 40.
+
+```{r}
+cov(rwalks[10,], rwalks[85,])
+```
+
+
+## Autocorrelation
+
+The autocorrelation between two time points, t and s, such that $1 \le t \le s$ is as follows:
+
+$$\rho_{t, s} = \frac{\text{Cov}(Y_t,Y_s)}{\sqrt{\text{Cov}(Y_t,Y_t), \text{Cov}(Y_s,Y_s)}}$$
+
+$$\rho_{t, s} = \frac{t\sigma_{e}^2}{\sqrt{t\sigma_{e}^2 s\sigma_{e}^2}} $$
+
+Which simplifies to:
+
+$$\rho_{t, s} = \frac{t\sigma_{e}^2}{\sqrt{t\sigma_{e}^2 s\sigma_{e}^2}} \frac{\sqrt{t\sigma_{e}^2}}{\sqrt{t\sigma_{e}^2}} = \frac{t\sigma_{e}^2\sqrt{ t\sigma_{e}^2}}{t\sigma_{e}^2\sqrt{s\sigma_{e}^2}} = \sqrt{\frac{t}{s}}$$
+
+Therefore the autocorrelation between time points 10 and 11 should theoretically be $\sqrt{10/11} \approx 0.953$.
+
+```{r}
+cor(rwalks[10,], rwalks[11,])
+```
+
+Likewise, the the autocorrelation between time points 10 and 85 should theoretically be $\sqrt{10/85} \approx 0.343$.
+
+```{r}
+cor(rwalks[10,], rwalks[85,])
+```
+
+The values of Y at neighboring time points are more and more strongly and positively correlated as time goes by.
+
+```{r}
+cor(rwalks[1,], rwalks[2,])
+cor(rwalks[20,], rwalks[21,])
+cor(rwalks[50,], rwalks[51,])
+```
+
+We can visualize this using a simple for loop:
+
+```{r}
+corrs <- numeric(99)
+for(i in 1:99){
+  corrs[i] <- cor(rwalks[i,], rwalks[i + 1,])
+}
+plot(corrs, type = "l")
+```
+
+The values of y at distant time points are less and less correlated
+
+```{r}
+cor(rwalks[1,], rwalks[2,])
+cor(rwalks[1,], rwalks[12,])
+cor(rwalks[1,], rwalks[30,])
+```
+
+
+Again, pretty easy to visualize:
+
+```{r}
+corrs <- numeric(99)
+for(i in 1:99){
+  corrs[i] <- cor(rwalks[1,], rwalks[i + 1,])
+}
+plot(corrs, type = "l")
+```
+
+Since variance increases over time and correlation between values nearby in time are close to 1, we should expect long excursions from the mean level of 0. That's precisely what we see in these nine random walks.
+
+
+```{r}
+op <- par(mfrow = c(3,3), mar = c(2,2,1,2) + 0.1)
+for(i in 1:9) plot(rwalks[,i], type = "l", ylab = "")
+par(op)
+```
+

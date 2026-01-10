@@ -1,0 +1,106 @@
+---
+title: "Some notes on Cronbach's alpha"
+date: "2025-03-24"
+categories: [BMJ]
+---
+
+
+I was reading [this BMJ Statistics Note](https://www.bmj.com/content/bmj/314/7080/572.full.pdf) by Bland and Altman on Cronbach's alpha and wanted to jot down a few notes.
+
+These two excerpts were worth copying and pasting:
+
+- _Many quantities of interest in medicine, such as anxiety or degree of handicap, are impossible to measure explicitly. Instead, we ask a series of questions and combine the answers into a single numerical value. Often this is done by simply adding a score from each answer._ (The questions are usually referred to as "items".)
+- _When items are used to form a scale they need to have internal consistency. The items should all measure the same thing, so they should be correlated with one another._ 
+
+Cronbach's alpha is a statistic that allows us to assess the internal consistency of a scale. It ranges from 0 to 1. The closer to 1, the more internal consistency the scale has. 
+
+The basic idea is to look at the ratio of the sum of k item variances to the variance of the sums. For example, say we have a k = 10 question (or 10 item) survey to measure anxiety, where each question is scored from 1 (no anxiety) to 4 (high anxiety), and the 10 item scores are summed to give an anxiety score. To assess internal consistency, we would give this survey to a bunch of people who are known to have anxiety and collect their responses. We would next calculate the variances of the 10 items as well as the variance of the total scores. We would then sum the 10 item variances and divide by the variance of the total scores to get a ratio. This ratio is at the core of the formula for Cronbach's alpha.
+
+To derive Cronbach's alpha, it helps to consider the two extremes this ratio could take. The easiest to consider is the case when _all k items are independent_ and thus the variance of their sum is equal to the sum of their variances. No need to account for covariance since it's 0. That is,
+
+$$ 
+s^2_T = \sum_{i=1}^{k}s^2_i
+$$
+
+In this case, the ratio of sum of variances to variance of sums is 1: $\frac{\sum_{i=1}^{k}s^2_i}{s^2_T} = 1$
+
+At the other extreme, _all items have identical variance and are perfectly correlated_. In this case we cannot simply sum the item variances to calculate the variance of the sums. The expression for $s^2_T$ is more complicated. We need to include covariances. This comes out to
+
+$$
+s^2_T = \sum_{i=1}^{k}s^2_i + 2\sum_{i<j}\text{Cov}(X_i,X_j)
+$$
+
+However, since all items have identical variances and are perfectly correlated, the covariance for any two variables is the same as their respective variances. Recall the formula for covariance for two variables:
+
+$$
+\text{Cov}(X,Y) = \rho\sigma_x\sigma_y
+$$
+
+If $\rho=1$ and x and y have equal variance, then the product of their respective standard deviations is equal to the variance of x or y. 
+
+To calculate $s^2_T$ in this case we need to two parts: (1) the sum of the variances and (2) the sum of the covariances.
+
+If we have k groups with equal variances, the sum of the variances is simply $k\sigma^2$.
+
+If we have k groups, then we have $\frac{k(k-1)}{2}$ pairs of covariances. The sum of the covariances is $2\frac{k(k-1)}{2}\sigma^2$, which simplifies to $k(k-1)\sigma^2$.
+
+Therefore we have
+
+$$
+s^2_T = k\sigma^2 + k(k-1)\sigma^2
+$$
+
+Which simplifies to
+
+$$
+s^2_T = k^2\sigma^2
+$$
+
+Now when we form the ratio of sum of variances to variance of sums we get $\frac{k\sigma^2}{k^2\sigma^2}$, which simplifies to $\frac{1}{k}$. 
+
+So at one extreme where all k items are independent we get a ratio of 1, and at the other extreme where all k items have equal variance and perfect correlation, we get a ratio of $1/k$. If we subtract this ratio from 1, we get 0 at one extreme and $1 - 1/k$, or $(k-1)/k$ at the other. Therefore, if we multiply by $k/(k-1)$ after subtracting from 1, we'll still get 0 at one extreme but 1 at the other. This leads to the general formula for Cronbach's alpha:
+
+$$
+\alpha = \frac{k}{k-1} \Big(1 - \frac{\sum_{i=1}^{k}s^2_i}{s^2_T}\Big)
+$$
+
+Here's a simple demonstration of where all items have identical variance and are perfectly correlated.
+
+```{r}
+it1 <- c(3, 3, 4, 2)
+it2 <- c(3, 3, 4, 2)
+it3 <- c(3, 3, 4, 2)
+d <- data.frame(it1, it2, it3)
+d
+```
+
+There are three items and four subjects gave the same response to each question. Now we sum the scores to add a total to the data frame and then take the variance of all 4 columns. Of course all three item variances are equal.
+
+```{r}
+d$tot <- apply(d, 1, sum)
+vars <- sapply(d, var)
+vars
+```
+
+If we sum the three item variances and divide by the variance of the sum, we get 1/3 since k = 3.
+
+```{r}
+sum(vars[1:3])/vars["tot"]
+```
+
+If all items are independent, the sum of variances equals the variance of sums. We can simulate a large amount of independent data to demonstrate this.
+
+```{r}
+X <- matrix(data = rnorm(1e6*5), ncol = 5)
+sum(apply(X,2,var)) # sum of variances
+var(apply(X,1,sum)) # variance of sums
+```
+
+The lower bound of 0 for Cronbach's alpha is basically theoretical. It seems impossible that one would ever get a 0 in real life. 
+
+Bland and Altman conclude with this useful observation:
+
+_Cronbach's alpha has a direct interpretation. The items in our test are only some of the many possible items which could be used to make the total score. If we were to choose two random samples of k of these possible items, we would have two different scores each made up of k items. The expected correlation between these scores is $\alpha$._
+
+
+
