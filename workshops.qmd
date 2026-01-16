@@ -1,0 +1,37 @@
+---
+title: "Workshops"
+---
+
+Here are materials for some of the R workshops I have taught at the University of Virginia Library.
+
+
+## Statistical methods
+
+- <a href="https://github.com/clayford/BLR_in_R/raw/main/BLR_in_R.zip">Binary Logistic Regression in R</a>&nbsp;(2025)
+- <a href="https://github.com/clayford/OLR_in_R/raw/main/OLR_in_R.zip">Ordinal Logistic Regression in R</a>&nbsp;(2025)
+- <a href="https://github.com/clayford/LinearModelingR/raw/master/LinearModelingR.zip">Linear Modeling in R</a> (2025)
+- <a href="https://github.com/clayford/mixeff_modeling_with_r/raw/main/mixef_modeling_with_R.zip">Linear Mixed-Effect Modeling in R</a> (2025)
+- <a href="https://github.com/clayford/CountModels/raw/master/count_models_in_r.zip">Count Modeling in R</a> (2024)
+- <a href="https://github.com/clayford/PaSSA/raw/master/PaSSA.zip">Power and Sample Size Analysis</a> (2024)
+- <a href="https://github.com/clayford/BDA/raw/master/bda_part_1.zip">Bayesian Data Analysis, Part 1</a> (2024)
+- <a href="https://github.com/clayford/BDA/raw/master/bda_part_2.zip">Bayesian Data Analysis, Part 2</a> (2024)
+- <a href="https://github.com/clayford/survival_analysis_modeling/raw/main/survival_analysis_modeling_in_R.zip">Survival Analysis Modeling in R</a> (2023)
+- <a href="https://github.com/clayford/IntroStatsR/raw/master/Stats_Refresher_with_R.zip">Basic Statistics Refresher with R</a>&nbsp;(2021)
+- <a href="https://github.com/clayford/EFA_workshop/raw/refs/heads/master/EFA_2018.zip">Exploratory Factor Analysis</a>&nbsp;(2018)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/CFA_2018.zip">Confirmatory Factor Analysis</a>&nbsp;(2018)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/IntroCDA.zip">Introductory Categorical Data Analysis in R</a>&nbsp;(2016)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/CART.zip">Intro to Machine Learning, Classification and Regression Trees</a>&nbsp;(2016)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/ResamplingMethods.zip">Resampling Methods</a>&nbsp;(2014)
+
+
+## Data Wrangling and Visualization
+
+- <a href="https://github.com/clayford/dataviz_with_ggplot2/raw/refs/heads/master/dataviz_with_ggplot2.zip">Data Visualization with ggplot2</a> (2025)
+- <a href="https://github.com/clayford/DataWranglingStrategies/raw/main/DWS.zip">Data Wrangling Strategies with R</a>&nbsp;(2021)
+- <a href="http://static.lib.virginia.edu/statlab/materials/workshops/vmcr.zip">Visualizing Models, Communicating Results in R</a>&nbsp;(2019)
+- <a href="http://static.lib.virginia.edu/statlab/materials/workshops/shiny_2019.zip">Interactive Web Apps in R with shiny</a>&nbsp;(2019)
+- <a href="http://static.lib.virginia.edu/statlab/materials/workshops/DWR_01.zip">Data Wrangling with R, Part I</a>&nbsp;(2018)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/DWR_02.zip">Data Wrangling with R, Part II</a>&nbsp;(2018)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/DWR_03.zip">Data Wrangling with R, Part III</a>&nbsp;(2018)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/rvest_workshop.zip">Web Scraping in R with rvest</a> (2017)
+- <a href="https://static.lib.virginia.edu/statlab/materials/workshops/rmd_pres_htm.html">Introduction to R Markdown</a>&nbsp;(2017)
