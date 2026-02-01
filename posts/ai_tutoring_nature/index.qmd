@@ -1,0 +1,188 @@
+---
+title: "AI tutoring outperforms in-class active learning: a re-analysis"
+date: "2026-01-31"
+categories: [AI, multilevel modeling, bootstrap]
+---
+
+I recently came across this article in Nature titled [AI tutoring outperforms in-class active learning: an RCT introducing a novel research-based design in an authentic educational setting](https://www.nature.com/articles/s41598-025-97652-6) by Kestin et al. The abstract states "We find that students learn significantly more in less time when using the AI tutor, compared with the in-class active learning." The article also claims "The median learning gains for students, relative to the pre-test baseline (M=2.75, N=316), in the AI-tutored group were **over double** those for students in the in-class active learning group." (emphasis mine) That's a really large effect!
+
+The study utilized a cross-over design: "In this study, students were divided into two groups, each experiencing two lessons, each with distinct teaching methodologies, in consecutive weeks. During, the first week, group 1 engaged with an AI-supported lesson at home while group 2 participated in an active learning lesson in class. The conditions were reversed the following week." This seems like a solid study design.
+
+The authors generously shared their data on [GitHub](https://github.com/HarvardAItutor/Study-Data-v4) as a Stata dta file. Let's replicate their results and critique their statistical approach.
+
+First we'll read in the data and look at the first 6 rows. The "rid" column is a unique identifier for each student. If we sort by "rid" we see that each student appears to have two records, one for their AI supported lesson and one for their active learning lesson, which is coded in the "lect_AI" column (0 = active learning, 1 = AI supported). We also see each student took a pre-test and post-test in each condition. The other columns are for self-reported student survey responses, which I won't look at it in this post.
+
+```{r}
+library(haven)
+d <- read_dta("https://github.com/HarvardAItutor/Study-Data-v4/raw/refs/heads/main/Harvard_AI_Tutor_Study_Data.dta")
+d <- d[order(d$rid),]
+head(d)
+```
+
+
+The reported pre-test baseline and group size is for _all students_ in the study (M=2.75, N=316):
+
+```{r}
+list(M = median(d$pre_score), N = length(d$pre_score))
+```
+
+How the authors determined learning gains were _more than double_ was to subtract the overall pre-score median from _all_ post-test scores and then compare differences.
+
+```{r}
+d$diff <- d$post_score - median(d$pre_score)
+aggregate(diff ~ lect_AI, data = d, median)
+```
+
+The median of the AI group is "over double" the size of the in-class group.
+
+```{r}
+1.75/0.75
+```
+
+However it makes more sense to compare each person's post-test score to their _own_ pre-test score.
+
+```{r}
+d$diff2 <- d$post_score - d$pre_score
+aggregate(diff2 ~ lect_AI, data = d, median)
+```
+
+When we do this the median difference is more like 30% higher.
+
+```{r}
+1.583333/1.208333	
+```
+
+The article also says: "Students in the AI group exhibited a higher median (M) post-score (M=4.5, N=142) compared to those in the in-class active learning group (M=3.5, N=174)." We can replicate these results as follows:
+
+```{r}
+# in-class = 0, AI group = 1
+tapply(d$post_score, d$lect_AI, function(x)c(M = median(x), N = length(x)))
+```
+
+This is also about a 30% increase:
+
+```{r}
+4.5/3.5
+```
+
+We can properly analyze the difference in medians controlling for pre-test using quantile regression.
+
+```{r message=FALSE, warning=FALSE}
+library(quantreg)
+m <- rq(post_score ~ pre_score + lect_AI, data = d)
+coef(summary(m))
+```
+
+The expected median post-score for the AI tutored group is about 0.7 points higher than the in-class group. The 95% confidence interval says the uncertainty in this estimate ranges from about 0.48 to 0.95. The intercept, 3.1, is the expected median post-score for students who had a pre-test score of 0. We can get expected post-test scores for both groups by plugging in a representative value for pre-test. This would be a good use of the overall median (2.75). This shows about a 20% increase.
+
+```{r}
+pred <- predict(m, newdata = data.frame(pre_score = 2.75, lect_AI = c(0,1)))
+pred[2]/pred[1]
+```
+
+This data could also be analyzed using traditional linear modeling. The data has two records per student, so it makes sense to fit a multilevel model.
+
+```{r message=FALSE}
+library(lme4)
+m2 <- lmer(post_score ~ pre_score + lect_AI + (1|rid), data = d)
+coef(summary(m2, corr = FALSE))
+```
+
+The results are pretty much the same. The expected _mean_ post-score for the AI tutored group is about 0.69 points higher than the in-class group. We can estimate an approximate 95% confidence interval by adding and subtracting two standard errors to the estimate. The 95% confidence interval says the uncertainty in this estimate ranges from about 0.43 to 0.91. 
+
+```{r}
+0.67 + 2*c(-0.12, 0.12)
+```
+
+Again we can get expected post-test scores for both groups by plugging in a representative value for pre-test. This also predicts about a 20% increase.
+
+```{r}
+pred <- predict(m2, newdata = data.frame(pre_score = 2.75, lect_AI = c(0,1)),
+                re.form = NA)
+pred[2]/pred[1]
+```
+
+We can estimate a bootstrap confidence interval on this estimate using the `bootMer()` function from the lmer package.
+
+```{r}
+f <- function(x){
+  pred <- predict(x, newdata = data.frame(pre_score = 2.75, lect_AI = c(0,1)),
+                re.form = NA)
+  pred[2]/pred[1]
+  }
+bout <- bootMer(m2, FUN = f, nsim = 1000, seed = 4321)
+quantile(bout$t, probs = c(0.025, 0.975))
+```
+
+The 95% confidence interval shows an improvement of about 12% to 26%. 
+
+We can visualize this model using ggeffects. Notice the enormous amount of variability around the fitted lines. However, controlling for pre-score, there appears to be an expected improvement in post-scores for the AI group. The distance between the lines is the 0.69 coefficient in the model. 
+
+```{r message=FALSE}
+library(ggeffects)
+plot(ggpredict(m2, terms = c("pre_score", "lect_AI")), 
+     show_data = TRUE)
+```
+
+
+Yes, absolutely, the AI group seems to do better. But I wouldn't say it _doubled_ the effect. 
+
+If we plot the raw data and fit nonparametric smooth trend lines, we see the same general result. Controlling for pre-score, there are slighter higher post-scores for the AI group. 
+
+
+```{r message=FALSE}
+library(ggplot2)
+ggplot(d) +
+  aes(x = pre_score, y = post_score, color = factor(lect_AI)) + 
+  geom_point() +
+  geom_smooth() +
+  labs(title = "Post-scores versus Pre-Scores by Treatment", 
+       color = "Active (0) vs AI (1)")
+```
+
+
+Now if students participated in both conditions, they should have two records. But only 63% of the students participated in both conditions. 
+
+```{r}
+mean(table(d$rid) == 2)
+```
+
+If we only analyze students in both conditions, the effect gets even smaller. 
+
+```{r}
+i <- names(table(d$rid))[table(d$rid) == 2]
+m3 <- lmer(post_score ~ pre_score + lect_AI + (1|rid), data = d, 
+           subset = d$rid %in% i)
+coef(summary(m3, corr = FALSE))
+```
+
+Now the improvement is only about 16%.
+
+```{r}
+pred <- predict(m3, newdata = data.frame(pre_score = 2.75, lect_AI = c(0,1)),
+                re.form = NA)
+pred[2]/pred[1]
+```
+
+Once again we can use the bootstrap to get a percentile confidence interval on this ratio.
+
+```{r}
+bout <- bootMer(m3, FUN = f, nsim = 1000, seed = 1234)
+quantile(bout$t, probs = c(0.025, 0.975))
+```
+
+The effect is plausibly as small as 9% or as high as 24%.
+
+## Session Details
+
+```{r echo = FALSE, results='asis'}
+summary(report::report(sessionInfo()))
+```
+
+## References
+
+- Douglas Bates, Martin Maechler, Ben Bolker, Steve Walker (2015). Fitting Linear Mixed-Effects Models Using lme4. _Journal of Statistical Software_, 67(1), 1-48. doi:10.18637/jss.v067.i01.
+- Kestin, G., Miller, K., Klales, A. et al. AI tutoring outperforms in-class active learning: an RCT introducing a novel research-based design in an authentic educational setting. Sci Rep 15, 17458 (2025). <https://doi.org/10.1038/s41598-025-97652-6>.
+- Koenker R (2025). _quantreg: Quantile Regression_. doi:10.32614/CRAN.package.quantreg <https://doi.org/10.32614/CRAN.package.quantreg>, R package version 6.1, <https://CRAN.R-project.org/package=quantreg>.
+- Lüdecke D (2018). “ggeffects: Tidy Data Frames of Marginal Effects from Regression Models.” _Journal of Open Source Software_, *3*(26), 772. doi:10.21105/joss.00772 <https://doi.org/10.21105/joss.00772>.
+- R Core Team (2025). _R: A Language and Environment for Statistical Computing_. R Foundation for Statistical Computing, Vienna, Austria. <https://www.R-project.org/>.
