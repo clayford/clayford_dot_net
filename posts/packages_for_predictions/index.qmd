@@ -1,0 +1,163 @@
+---
+title: "Comparing packages for predictions"
+date: "2026-02-14"
+categories: [marginal means, logistic regression]
+---
+
+I was working through some R code from the excellent textbook [Analysis of Categorical Data with R 2nd ed](https://www.chrisbilder.com/categorical/index.html) and came across the following [simple example](https://www.chrisbilder.com/categorical/Chapter6/PlacekickBayes.R) that models the probability of a placekick being "good" as a function of distance.
+
+```{r}
+URL <- "https://www.chrisbilder.com/categorical/Chapter2/Placekick.csv"
+placekick <- read.csv(URL)
+mod.fit <- glm(formula = good ~ distance, 
+               family = binomial(link = logit), 
+               data = placekick)
+faraway::sumary(mod.fit)
+```
+
+The authors then provide a custom function to estimate the probability of a kick being good from a specified distance along with a 95% confidence interval. 
+
+```{r}
+ci.pi <- function(newdata, mod.fit.obj, alpha){
+ linear.pred <- predict(object = mod.fit.obj, newdata = newdata, type = "link", se = TRUE)
+ CI.lin.pred.lower <- linear.pred$fit - qnorm(p = 1-alpha/2)*linear.pred$se
+ CI.lin.pred.upper <- linear.pred$fit + qnorm(p = 1-alpha/2)*linear.pred$se
+ CI.pi.lower <- exp(CI.lin.pred.lower) / (1 + exp(CI.lin.pred.lower))
+ CI.pi.upper <- exp(CI.lin.pred.upper) / (1 + exp(CI.lin.pred.upper))
+ list(pi.hat = plogis(linear.pred$fit), lower = CI.pi.lower, upper = CI.pi.upper)
+}
+```
+
+They then use it to estimate probabilities for 20 and 50 yard kicks.
+
+```{r}
+ci.pi(newdata = data.frame(distance = 20), mod.fit.obj = mod.fit, alpha = 0.05)
+ci.pi(newdata = data.frame(distance = 50), mod.fit.obj = mod.fit, alpha = 0.05)
+```
+
+I appreciate the authors presenting this function. It's always good to see how to do these things "by hand". But this sent me down a rabbit hole to find R packages that implement this functionality. 
+
+## emmeans
+
+My first package to test was emmeans. The authors of the book use this package quite a bit in the exposition and I rely on it myself. Notice we have to provide the specific distances as a list object to the "at" argument. We also need to set `type = "response"` to get probabilities instead of log odds.
+
+```{r message=FALSE}
+library(emmeans)
+emmeans(mod.fit, specs = "distance", 
+        at = list(distance = c(20, 50)), 
+        type = "response")
+```
+
+The nice thing about emmeans is that we can pipe the result into a `plot()` method and get a decent visualization.
+
+```{r}
+emmeans(mod.fit, specs = "distance", 
+        at = list(distance = c(20, 50)), 
+        type = "response") |> 
+  plot()
+
+```
+
+We can save the emmeans result and make our own plot using ggplot2. Just make sure to use the `as.data.frame()` method to get a data frame.
+
+```{r}
+library(ggplot2)
+emdf <- emmeans(mod.fit, specs = "distance", 
+        at = list(distance = c(20, 50)), 
+        type = "response") |> 
+  as.data.frame()
+
+ggplot(emdf) + 
+  aes(x = distance, y = prob) +
+  geom_point() +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0)
+```
+
+## ggeffects
+
+My next package to try was ggeffects. I've been a long time user of the `ggpredict()` function to quickly get predicted values from a model. I like the custom syntax that allows you to specify specific values in brackets next to the variable name. And it converts to probabilities by default.
+
+```{r}
+library(ggeffects)
+ggpredict(mod.fit, terms = "distance[20,50]")
+```
+
+We can also pipe the result into a `plot()` method for a nice-looking plot. We specify `ci_style = "errorbar"` to restrict the plotting to the two points of interest, but the points are needlessly connected by a line. 
+
+```{r}
+ggpredict(mod.fit, terms = "distance[20,50]") |> 
+  plot(ci_style = "errorbar")
+```
+
+We can save the result of `ggpredict()` and make our own plot if we don't like the default. Notice `ggpredict()` automatically creates a data frame.
+
+```{r}
+ggpred <- ggpredict(mod.fit, terms = "distance[20,50]")
+  
+library(ggplot2)
+ggplot(ggpred) +
+  aes(x = x, y = predicted) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0) +
+  labs(x = "distance")
+```
+
+## modelbased
+
+I really do love the ggeffects package. I find it so easy and intuitive to use. But I recently noticed the developer has [placed the package in maintenance mode](https://github.com/strengejacke/ggeffects/blob/master/README.md) and is encouraging users to switch to a new package called [modelbased](https://easystats.github.io/modelbased/). So I decided to give this package a try. The function we want to use for this task is `estimate_expectation()`. To specify points, we use the "data" argument which requires a data frame.
+
+```{r}
+library(modelbased)
+estimate_expectation(mod.fit, data = data.frame(distance = c(20,50)))
+```
+
+As with ggeffects, we can pipe this result into a `plot()` method. The method provides an argument called "join_dots" that allows us to suppress the connecting of the the dots. 
+
+```{r}
+estimate_means(mod.fit, by = c("distance = c(20,50)")) |> 
+  plot(join_dots = FALSE)
+```
+
+Like ggeffects, we can save the result and get a data frame if we want to make our own plot. 
+
+```{r}
+mbdf <- estimate_means(mod.fit, by = c("distance = c(20,50)")) 
+ggplot(mbdf) +
+  aes(x = distance, y = Probability) +
+  geom_point() +
+  geom_errorbar(aes(ymin = CI_low, ymax = CI_high), width = 0) 
+```
+
+The modelbased package seems to be a worthy successor to ggeffects, but I'm having a hard time switching after using ggeffects for so many years. 
+
+## marginaleffects
+
+The last package I tried was the marginaleffects package. This is the package I am least familiar with, but judging from its [online book](https://marginaleffects.com/) it's a package I should learn more about. It appears to be quite powerful. The function we want to use is the `predictions()` function. We have to supply the specified distances as a `datagrid` object.
+
+```{r}
+library(marginaleffects)
+predictions(mod.fit, newdata = datagrid(distance = c(20, 50)))
+```
+
+There is no option to pipe the result into a `plot()` method as far as I can tell. It looks like you need to use a dedicated function called `plot_predictions()`.
+
+```{r}
+plot_predictions(mod.fit, condition = list(distance = c(20, 50)))
+```
+
+This isn't the plot I want and I can't figure out if there's a way to make it using the arguments available in the `plot_predictions()` function. However, we can extract a data frame and make the plot ourselves by setting `draw = FALSE`.
+
+```{r}
+medf <- plot_predictions(mod.fit, condition = list(distance = c(20, 50)), draw = FALSE)
+
+ggplot(medf) +
+  aes(x = distance, y = estimate) +
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0)
+```
+
+## R session details
+
+```{r echo = FALSE, results='asis'}
+summary(report::report(sessionInfo()))
+```
