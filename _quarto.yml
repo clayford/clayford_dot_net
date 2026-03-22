@@ -9,8 +9,8 @@ website:
     right:
       - blog.qmd
       - workshops.qmd
+      - r_packages.qmd
       - misc.qmd
-      - archive.qmd
       - icon: github
         href: https://github.com/clayford
       - icon: linkedin

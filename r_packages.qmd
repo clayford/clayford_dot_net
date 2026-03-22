@@ -1,0 +1,18 @@
+---
+title: "R Packages"
+---
+
+
+
+## bme
+
+The [bme package](https://github.com/clayford/bme) contains functions and data files for the book [Biostatistical Methods in Epidemiology](http://www.wiley.com/WileyCDA/WileyTitle/productCd-EHEP002366.html), by Stephen C. Newman, Wiley-Interscience (2001). Created out of simple enjoyment of the book and not endorsed or authorized by the author or the publisher. Not on CRAN.
+
+## valottery
+
+The [valottery package](https://github.com/clayford/valottery) contains historical results of the Virginia lottery draw games. This was the first package I ever created. I don't play the Virginia lottery or gamble. I just thought this would be a fun package to create to get some experience building a R package. [Available on CRAN](https://cran.r-project.org/web/packages/valottery/index.html).
+
+
+## dvdata
+
+The [dvdata package](https://github.com/clayford/dvdata) contains data files for the book _Design and Analysis of Experiments, first edition_, by Angela Dean and Dan Voss, Springer-Verlag, New York (1999). There is now a second edition of the book with data sets [available here](http://deanvossdraguljic.ietsandbox.net/). Not on CRAN. 
